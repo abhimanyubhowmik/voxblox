@@ -1,8 +1,13 @@
 cmake_minimum_required(VERSION 2.8.12)
 project(voxblox)
 
-find_package(catkin_simple REQUIRED )
+set(CMAKE_VERBOSE_MAKEFILE ON)
+
+find_package(catkin_simple REQUIRED)
+find_package(OpenCV 4 REQUIRED)
 catkin_simple(ALL_DEPS_REQUIRED)
+
+include_directories(${OpenCV_INCLUDE_DIRS} /usr/include/opencv4)
 
 set(CMAKE_MACOSX_RPATH 0)
 add_definitions(-std=c++11 -Wall -Wextra)
@@ -57,7 +62,14 @@ cs_add_library(${PROJECT_NAME}_proto
 cs_add_library(${PROJECT_NAME}
   ${${PROJECT_NAME}_SRCS}
 )
-target_link_libraries(${PROJECT_NAME} ${PROJECT_NAME}_proto)
+target_link_libraries(${PROJECT_NAME} 
+    ${PROJECT_NAME}_proto
+    ${OpenCV_LIBRARIES}
+)
+
+message(STATUS "OpenCV libraries: ${OpenCV_LIBS}")
+message(STATUS "OpenCV include directories: ${OpenCV_INCLUDE_DIRS}")
+
 
 ############
 # BINARIES #

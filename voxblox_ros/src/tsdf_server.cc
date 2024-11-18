@@ -1,10 +1,12 @@
 #include "voxblox_ros/tsdf_server.h"
 
+
 #include <minkindr_conversions/kindr_msg.h>
 #include <minkindr_conversions/kindr_tf.h>
 
 #include "voxblox_ros/conversions.h"
 #include "voxblox_ros/ros_params.h"
+
 
 namespace voxblox {
 
@@ -41,6 +43,13 @@ TsdfServer::TsdfServer(const ros::NodeHandle& nh,
       transformer_(nh, nh_private) {
   getServerConfigFromRosParam(nh_private);
 
+  // Subscribe to topics.
+
+  loadCameraIntrinsics(nh_private_);
+  
+  confidence_sub_ = nh_.subscribe("confidence", 10, 
+                                           &TsdfServer::confidenceCallback, this);
+
   // Advertise topics.
   surface_pointcloud_pub_ =
       nh_private_.advertise<pcl::PointCloud<pcl::PointXYZRGB> >(
@@ -48,6 +57,10 @@ TsdfServer::TsdfServer(const ros::NodeHandle& nh,
   tsdf_pointcloud_pub_ =
       nh_private_.advertise<pcl::PointCloud<pcl::PointXYZI> >("tsdf_pointcloud",
                                                               1, true);
+  tsdf_weight_pointcloud_pub_ = nh_.advertise<pcl::PointCloud<pcl::PointXYZI>>("tsdf_weight_pointcloud", 
+                                                              1, true);
+
+                                                              
   occupancy_marker_pub_ =
       nh_private_.advertise<visualization_msgs::MarkerArray>("occupied_nodes",
                                                              1, true);
@@ -147,6 +160,42 @@ TsdfServer::TsdfServer(const ros::NodeHandle& nh,
                                 &TsdfServer::publishMapEvent, this);
   }
 }
+
+void TsdfServer::loadCameraIntrinsics(const ros::NodeHandle& nh_private) {
+  std::vector<double> intrinsics;
+  ROS_INFO("Attempting to load camera intrinsics for cam1...");
+  
+  if (nh_private.getParam("cam1/intrinsics", intrinsics)) {
+    if (intrinsics.size() == 4) {
+      ROS_INFO("Intrinsics loaded for cam1: [%f, %f, %f, %f]", 
+               intrinsics[0], intrinsics[1], intrinsics[2], intrinsics[3]);
+      fx_ = intrinsics[0];
+      fy_ = intrinsics[1];
+      cx_ = intrinsics[2];
+      cy_ = intrinsics[3];
+    } else {
+      ROS_ERROR("Invalid number of intrinsics parameters for cam1. Expected 4, got %zu", intrinsics.size());
+    }
+  } else {
+    ROS_ERROR("Failed to load camera intrinsics for cam1. Param name: %s", 
+              nh_private.resolveName("cam1/intrinsics").c_str());
+  }
+}
+
+void TsdfServer::confidenceCallback(const sensor_msgs::ImageConstPtr& msg) {
+  try {
+    cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, "32FC1");
+    confidence_image_ = cv_ptr->image;  // Store confidence map as a cv::Mat
+  } catch (cv_bridge::Exception& e) {
+    ROS_ERROR("cv_bridge exception: %s", e.what());
+  }
+}
+
+void TsdfServer::updateIntegratorConfidence() {
+  tsdf_integrator_->setConfidenceImage(confidence_image_);
+  tsdf_integrator_->setCameraIntrinsics(fx_, fy_, cx_, cy_);
+}
+
 
 void TsdfServer::getServerConfigFromRosParam(
     const ros::NodeHandle& nh_private) {
@@ -359,6 +408,9 @@ void TsdfServer::insertPointcloud(
     pointcloud_queue_.push(pointcloud_msg_in);
   }
 
+  // Call updateIntegratorConfidence to update the confidence image and intrinsics
+  updateIntegratorConfidence();
+
   Transformation T_G_C;
   sensor_msgs::PointCloud2::Ptr pointcloud_msg;
   bool processed_any = false;
@@ -415,13 +467,18 @@ void TsdfServer::integratePointcloud(const Transformation& T_G_C,
 
 void TsdfServer::publishAllUpdatedTsdfVoxels() {
   // Create a pointcloud with distance = intensity.
-  pcl::PointCloud<pcl::PointXYZI> pointcloud;
+  pcl::PointCloud<pcl::PointXYZI> distance_pointcloud;
+  createDistancePointcloudFromTsdfLayer(tsdf_map_->getTsdfLayer(), &distance_pointcloud);
+  distance_pointcloud.header.frame_id = world_frame_;
+  tsdf_pointcloud_pub_.publish(distance_pointcloud);
 
-  createDistancePointcloudFromTsdfLayer(tsdf_map_->getTsdfLayer(), &pointcloud);
-
-  pointcloud.header.frame_id = world_frame_;
-  tsdf_pointcloud_pub_.publish(pointcloud);
+  // Create a pointcloud with voxel weight as intensity.
+  pcl::PointCloud<pcl::PointXYZI> weight_pointcloud;
+  createWeightPointcloudFromTsdfLayer(tsdf_map_->getTsdfLayer(), &weight_pointcloud);
+  weight_pointcloud.header.frame_id = world_frame_;
+  tsdf_weight_pointcloud_pub_.publish(weight_pointcloud);
 }
+
 
 void TsdfServer::publishTsdfSurfacePoints() {
   // Create a pointcloud with distance = intensity.

@@ -34,6 +34,11 @@ template <typename VoxelType>
 using ShouldVisualizeVoxelColorFunctionType = std::function<bool(
     const VoxelType& voxel, const Point& coord, Color* color)>;
 
+// Function pointer type to visualize voxel weights.
+template <typename VoxelType>
+using ShouldVisualizeVoxelWeightFunctionType =
+    std::function<bool(const VoxelType&, const Point&, double*)>;
+
 /**
  * For intensities values, such as distances, which are mapped to a color only
  * by the subscriber.
@@ -128,6 +133,44 @@ void createColorPointcloudFromLayer(
   }
 }
 
+/// Template function to visualize a pointcloud with voxel weights.
+template <typename VoxelType>
+void createWeightPointcloudFromLayer(
+    const Layer<VoxelType>& layer,
+    const ShouldVisualizeVoxelWeightFunctionType<VoxelType>& vis_function,
+    pcl::PointCloud<pcl::PointXYZI>* pointcloud) {
+  CHECK_NOTNULL(pointcloud);
+  pointcloud->clear();
+  BlockIndexList blocks;
+  layer.getAllAllocatedBlocks(&blocks);
+
+  // Cache layer settings.
+  size_t vps = layer.voxels_per_side();
+  size_t num_voxels_per_block = vps * vps * vps;
+
+  // Temp variables.
+  double weight = 0.0;
+  // Iterate over all blocks.
+  for (const BlockIndex& index : blocks) {
+    // Iterate over all voxels in said blocks.
+    const Block<VoxelType>& block = layer.getBlockByIndex(index);
+
+    for (size_t linear_index = 0; linear_index < num_voxels_per_block;
+         ++linear_index) {
+      Point coord = block.computeCoordinatesFromLinearIndex(linear_index);
+      if (vis_function(block.getVoxelByLinearIndex(linear_index), coord,
+                       &weight)) {
+        pcl::PointXYZI point;
+        point.x = coord.x();
+        point.y = coord.y();
+        point.z = coord.z();
+        point.intensity = weight;  // Use voxel weight as intensity.
+        pointcloud->push_back(point);
+      }
+    }
+  }
+}
+
 template <typename VoxelType>
 void createOccupancyBlocksFromLayer(
     const Layer<VoxelType>& layer,
@@ -210,6 +253,19 @@ inline bool visualizeDistanceIntensityTsdfVoxels(const TsdfVoxel& voxel,
   }
   return false;
 }
+
+inline bool visualizeWeightTsdfVoxels(const TsdfVoxel& voxel,
+                                      const Point& /*coord*/,
+                                      double* weight) {
+  CHECK_NOTNULL(weight);
+  constexpr float kMinWeight = 1e-3;
+  if (voxel.weight > kMinWeight) {
+    *weight = voxel.weight;  // Use voxel's weight as the intensity value.
+    return true;
+  }
+  return false;
+}
+
 
 inline bool visualizeDistanceIntensityTsdfVoxelsNearSurface(
     const TsdfVoxel& voxel, const Point& /*coord*/, double surface_distance,
@@ -348,6 +404,16 @@ inline void createDistancePointcloudFromTsdfLayer(
   createColorPointcloudFromLayer<TsdfVoxel>(
       layer, &visualizeDistanceIntensityTsdfVoxels, pointcloud);
 }
+
+inline void createWeightPointcloudFromTsdfLayer(
+    const Layer<TsdfVoxel>& layer,
+    pcl::PointCloud<pcl::PointXYZI>* pointcloud) {
+  CHECK_NOTNULL(pointcloud);
+  // Use the new visualizeWeightTsdfVoxels function to visualize voxel weights.
+  createWeightPointcloudFromLayer<TsdfVoxel>(
+      layer, &visualizeWeightTsdfVoxels, pointcloud);
+}
+
 
 /**
  * Create a pointcloud based on the TSDF voxels near the surface.

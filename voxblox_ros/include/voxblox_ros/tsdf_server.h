@@ -30,6 +30,9 @@
 #include "voxblox_ros/ptcloud_vis.h"
 #include "voxblox_ros/transformer.h"
 
+#include <cv_bridge/cv_bridge.h>
+#include <opencv2/core.hpp>
+
 namespace voxblox {
 
 constexpr float kDefaultMaxIntensity = 100.0;
@@ -44,6 +47,10 @@ class TsdfServer {
              const TsdfIntegratorBase::Config& integrator_config,
              const MeshIntegratorConfig& mesh_config);
   virtual ~TsdfServer() {}
+
+  void confidenceCallback(const sensor_msgs::ImageConstPtr& msg);
+  void loadCameraIntrinsics(const ros::NodeHandle& nh_private);
+  void updateIntegratorConfidence();
 
   void getServerConfigFromRosParam(const ros::NodeHandle& nh_private);
 
@@ -119,6 +126,12 @@ class TsdfServer {
   /// Overwrites the layer with what's coming from the topic!
   void tsdfMapCallback(const voxblox_msgs::Layer& layer_msg);
 
+ private:
+ /// The TSDF map.
+  ros::Subscriber confidence_sub_;
+  cv::Mat confidence_image_;
+  float fx_, fy_, cx_, cy_;  // Camera intrinsics
+
  protected:
   /**
    * Gets the next pointcloud that has an available transform to process from
@@ -142,6 +155,8 @@ class TsdfServer {
   ros::Publisher tsdf_slice_pub_;
   ros::Publisher occupancy_marker_pub_;
   ros::Publisher icp_transform_pub_;
+  ros::Publisher tsdf_weight_pointcloud_pub_;
+
 
   /// Publish the complete map for other nodes to consume.
   ros::Publisher tsdf_map_pub_;

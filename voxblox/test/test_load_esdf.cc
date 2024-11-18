@@ -2,7 +2,6 @@
 #include <string>
 
 #include <glog/logging.h>
-
 #include "voxblox/core/block.h"
 #include "voxblox/core/layer.h"
 #include "voxblox/core/voxel.h"

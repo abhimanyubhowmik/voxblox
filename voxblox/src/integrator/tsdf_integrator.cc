@@ -164,9 +164,37 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
   // that in getVoxelWeight as here we have the actual SDF for the voxel
   // already computed.
   const FloatingPoint dropoff_epsilon = voxel_size_;
-  if (config_.use_weight_dropoff && sdf < -dropoff_epsilon) {
-    updated_weight = weight * (config_.default_truncation_distance + sdf) /
-                     (config_.default_truncation_distance - dropoff_epsilon);
+  // if (config_.use_weight_dropoff && sdf < -dropoff_epsilon) {
+  //   updated_weight = weight * (config_.default_truncation_distance + sdf) /
+  //                    (config_.default_truncation_distance - dropoff_epsilon);
+  //   updated_weight = std::max(updated_weight, 0.0f);
+  // }
+
+    if (config_.use_weight_dropoff && sdf < -dropoff_epsilon) {
+      float uForPointG = fx_ * (point_G.x() / point_G.z()) + cx_;
+      float vForPointG = fy_ * (point_G.y() / point_G.z()) + cy_;
+
+      const FloatingPoint dist_zForG = std::abs(point_G.z());
+
+      if (uForPointG >= 0 && uForPointG < confidence_image_.cols && vForPointG >= 0 && vForPointG < confidence_image_.rows) {
+      
+      float confidence = confidence_image_.at<float>(vForPointG, uForPointG);
+        
+        if (dist_zForG > kEpsilon) {
+          updated_weight = confidence / (dist_zForG * dist_zForG);
+        }
+      
+      updated_weight = confidence;  // Use confidence as the weight
+      }
+    else if (-dropoff_epsilon < sdf)
+    {
+      updated_weight = weight;
+    }
+    else if (sdf < - config_.default_truncation_distance)
+    {
+      updated_weight = 0.0f;
+    }
+    
     updated_weight = std::max(updated_weight, 0.0f);
   }
 
@@ -228,16 +256,40 @@ float TsdfIntegratorBase::computeDistance(const Point& origin,
 }
 
 // Thread safe.
+// float TsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
+//   if (config_.use_const_weight) {
+//     return 1.0f;
+//   }
+//   const FloatingPoint dist_z = std::abs(point_C.z());
+//   if (dist_z > kEpsilon) {
+//     return 1.0f / (dist_z * dist_z);
+//   }
+//   return 0.0f;
+// }
+
 float TsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
   if (config_.use_const_weight) {
     return 1.0f;
   }
+  // We need to check the condition later
+  // Project 3D point to 2D pixel coordinates
+  float u = fx_ * (point_C.x() / point_C.z()) + cx_;
+  float v = fy_ * (point_C.y() / point_C.z()) + cy_;
+  // Depth of the point_C
   const FloatingPoint dist_z = std::abs(point_C.z());
-  if (dist_z > kEpsilon) {
-    return 1.0f / (dist_z * dist_z);
+
+  // Check bounds and get confidence value from the image
+  if (u >= 0 && u < confidence_image_.cols && v >= 0 && v < confidence_image_.rows) {
+    float confidence = confidence_image_.at<float>(v, u);
+    if (dist_z > kEpsilon)
+    {
+      return confidence / (dist_z * dist_z);
+    }
+    return confidence;  // Use confidence as the weight
   }
-  return 0.0f;
+  return 0.0f;  // If out of bounds, return a weight of 0
 }
+
 
 void SimpleTsdfIntegrator::integratePointCloud(const Transformation& T_G_C,
                                                const Pointcloud& points_C,

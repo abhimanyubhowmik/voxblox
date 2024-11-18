@@ -3,6 +3,8 @@ project(voxblox_ros)
 
 find_package(catkin_simple REQUIRED)
 catkin_simple(ALL_DEPS_REQUIRED)
+# find_package(OpenCV 4 REQUIRED)
+# include_directories(${OpenCV_INCLUDE_DIRS} /usr/include/opencv4)
 
 add_definitions(-std=c++14 -Wall -Wextra)
 
@@ -51,6 +53,8 @@ cs_add_executable(visualize_tsdf
   src/visualize_tsdf.cc
 )
 target_link_libraries(visualize_tsdf ${PROJECT_NAME})
+
+# target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBRARIES})
 
 ##########
 # EXPORT #

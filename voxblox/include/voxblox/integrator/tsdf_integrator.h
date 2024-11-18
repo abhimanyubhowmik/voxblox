@@ -16,6 +16,9 @@
 
 #include <glog/logging.h>
 #include <Eigen/Core>
+#include <opencv2/core.hpp>
+
+
 
 #include "voxblox/core/block_hash.h"
 #include "voxblox/core/common.h"
@@ -50,6 +53,18 @@ const std::array<std::string, kNumTsdfIntegratorTypes>
  */
 class TsdfIntegratorBase {
  public:
+
+  void setConfidenceImage(const cv::Mat& confidence_image) {
+    confidence_image_ = confidence_image.clone();
+  }
+
+  void setCameraIntrinsics(float fx, float fy, float cx, float cy) {
+    fx_ = fx;
+    fy_ = fy;
+    cx_ = cx;
+    cy_ = cy;
+  }
+
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   typedef std::shared_ptr<TsdfIntegratorBase> Ptr;
 
@@ -108,6 +123,9 @@ class TsdfIntegratorBase {
   void setLayer(Layer<TsdfVoxel>* layer);
 
  protected:
+ 
+  cv::Mat confidence_image_;
+  float fx_, fy_, cx_, cy_;
   /// Thread safe.
   inline bool isPointValid(const Point& point_C, const bool freespace_point,
                            bool* is_clearing) const {
