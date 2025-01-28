@@ -280,6 +280,19 @@ inline bool visualizeDistanceIntensityTsdfVoxelsNearSurface(
   return false;
 }
 
+inline bool visualizeWeightIntensityTsdfVoxelsNearSurface(
+    const TsdfVoxel& voxel, const Point& /*coord*/, double surface_distance,
+    double* intensity) {
+  CHECK_NOTNULL(intensity);
+  constexpr float kMinWeight = 1e-3;
+  if (voxel.weight > kMinWeight &&
+      std::abs(voxel.distance) < surface_distance) {
+    *intensity = voxel.weight;  // Set intensity to the voxel's weight.
+    return true;
+  }
+  return false;
+}
+
 inline bool visualizeDistanceIntensityTsdfVoxelsSlice(
     const TsdfVoxel& voxel, const Point& coord, unsigned int free_plane_index,
     FloatingPoint free_plane_val, FloatingPoint voxel_size, double* intensity) {
@@ -426,6 +439,17 @@ inline void createSurfaceDistancePointcloudFromTsdfLayer(
   createColorPointcloudFromLayer<TsdfVoxel>(
       layer,
       std::bind(&visualizeDistanceIntensityTsdfVoxelsNearSurface, ph::_1,
+                ph::_2, surface_distance, ph::_3),
+      pointcloud);
+}
+
+inline void createSurfaceWeightPointcloudFromTsdfLayer(
+    const Layer<TsdfVoxel>& layer, double surface_distance,
+    pcl::PointCloud<pcl::PointXYZI>* pointcloud) {
+  CHECK_NOTNULL(pointcloud);
+  createColorPointcloudFromLayer<TsdfVoxel>(
+      layer,
+      std::bind(&visualizeWeightIntensityTsdfVoxelsNearSurface, ph::_1,
                 ph::_2, surface_distance, ph::_3),
       pointcloud);
 }

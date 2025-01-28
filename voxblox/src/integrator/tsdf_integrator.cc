@@ -170,33 +170,34 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
   //   updated_weight = std::max(updated_weight, 0.0f);
   // }
 
-    if (config_.use_weight_dropoff && sdf < -dropoff_epsilon) {
-      float uForPointG = fx_ * (point_G.x() / point_G.z()) + cx_;
-      float vForPointG = fy_ * (point_G.y() / point_G.z()) + cy_;
+  if (config_.use_weight_dropoff && sdf < -dropoff_epsilon) {
+    float uForPointG = fx_ * (point_G.x() / point_G.z()) + cx_;
+    float vForPointG = fy_ * (point_G.y() / point_G.z()) + cy_;
 
-      const FloatingPoint dist_zForG = std::abs(point_G.z());
+    const FloatingPoint dist_zForG = std::abs(point_G.z());
 
-      if (uForPointG >= 0 && uForPointG < confidence_image_.cols && vForPointG >= 0 && vForPointG < confidence_image_.rows) {
-      
-      float confidence = confidence_image_.at<float>(vForPointG, uForPointG);
-        
-        if (dist_zForG > kEpsilon) {
-          updated_weight = confidence / (dist_zForG * dist_zForG);
-        }
-      
-      updated_weight = confidence;  // Use confidence as the weight
-      }
-    else if (-dropoff_epsilon < sdf)
-    {
-      updated_weight = weight;
-    }
-    else if (sdf < - config_.default_truncation_distance)
-    {
-      updated_weight = 0.0f;
-    }
+    if (uForPointG >= 0 && uForPointG < confidence_image_.cols && vForPointG >= 0 && vForPointG < confidence_image_.rows) {
     
-    updated_weight = std::max(updated_weight, 0.0f);
+    float confidence = confidence_image_.at<float>(vForPointG, uForPointG);
+      
+      if (dist_zForG > kEpsilon) {
+        updated_weight = confidence / (dist_zForG * dist_zForG);
+      }
+    
+    updated_weight = confidence;  // Use confidence as the weight
+    }
   }
+  else if (-dropoff_epsilon < sdf)
+  {
+    updated_weight = weight;
+  }
+  else if (sdf < - config_.default_truncation_distance)
+  {
+    updated_weight = 0.0f;
+  }
+  
+  updated_weight = std::max(updated_weight, 0.0f);
+  
 
   // Compute the updated weight in case we compensate for sparsity. By
   // multiplicating the weight of occupied areas (|sdf| < truncation distance)
