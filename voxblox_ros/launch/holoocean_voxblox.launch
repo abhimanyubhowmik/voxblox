@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<launch>
+  <!-- Start Voxblox -->
+  <arg name="voxel_size" default="0.20"/>
+  <!-- <arg name="voxblox_config_file" default="$(find voxblox_ros)/cfg/holoocean_voxblox.yaml"/> -->
+  <node name="voxblox_node" pkg="voxblox_ros" type="tsdf_server" output="screen" args="--alsologtostderr" clear_params="true">
+    <remap from="pointcloud" to="/camera/depth/points"/>
+    <remap from="freespace_pointcloud" to="/camera/depth/freespace_points"/>
+    <remap from="confidence" to="/camera/depth/confidence"/>
+    <rosparam command="load" file="$(find voxblox_ros)/cfg/underwater_dataset.yaml" />
+    <!-- <rosparam command="load" file="$(arg voxblox_config_file)" /> -->
+    <rosparam command="load" file="$(find voxblox_ros)cfg/calibrations/holoocean_camera.yaml" />
+    <param name="mesh_filename" value="$(find voxblox_ros)/mesh_results/holoocean_mesh.ply" />
+    <param name="tsdf_voxel_size" value="$(arg voxel_size)" />
+  </node>
+</launch>

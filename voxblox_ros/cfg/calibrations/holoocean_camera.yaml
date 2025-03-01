@@ -1,0 +1,42 @@
+cam0:
+  camera_model: pinhole
+  distortion_model: radtan
+  distortion_coeffs:
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+  intrinsics:
+    - 160.0  # fx
+    - 160.0  # fy
+    - 160.0  # cx
+    - 120.0  # cy
+  resolution:
+    - 320
+    - 240
+  rostopic: /camera/depth/image_raw
+
+cam1:
+  T_cn_cnm1:
+    - [1.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0]
+  cam_overlaps:
+    - 0
+  camera_model: pinhole
+  distortion_model: radtan
+  distortion_coeffs:
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+  intrinsics:
+    - 160.0  # fx
+    - 160.0  # fy
+    - 160.0  # cx
+    - 120.0  # cy
+  resolution:
+    - 320
+    - 240
+  rostopic: /camera/depth/points
