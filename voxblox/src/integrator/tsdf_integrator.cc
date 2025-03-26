@@ -181,10 +181,10 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
     float confidence = confidence_image_.at<float>(vForPointG, uForPointG);
       
       if (dist_zForG > kEpsilon) {
-        updated_weight = confidence / (dist_zForG * dist_zForG);
+        updated_weight = confidence;
       }
     
-    updated_weight = confidence;  // Use confidence as the weight
+    // updated_weight = confidence;  // Use confidence as the weight
     }
   }
   else if (-dropoff_epsilon < sdf)
@@ -214,7 +214,7 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
   // Lookup the mutex that is responsible for this voxel and lock it
   std::lock_guard<std::mutex> lock(mutexes_.get(global_voxel_idx));
 
-  const float new_weight = tsdf_voxel->weight + updated_weight;
+  const float new_weight = (tsdf_voxel->weight + updated_weight)/2 ;
 
   // it is possible to have weights very close to zero, due to the limited
   // precision of floating points dividing by this small value can cause nans
@@ -224,7 +224,7 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
 
   const float new_sdf =
       (sdf * updated_weight + tsdf_voxel->distance * tsdf_voxel->weight) /
-      new_weight;
+      (tsdf_voxel->weight + updated_weight);
 
   // color blending is expensive only do it close to the surface
   if (std::abs(sdf) < config_.default_truncation_distance) {
@@ -284,9 +284,9 @@ float TsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
     float confidence = confidence_image_.at<float>(v, u);
     if (dist_z > kEpsilon)
     {
-      return confidence / (dist_z * dist_z);
+      return confidence;
     }
-    return confidence;  // Use confidence as the weight
+    // return confidence;  // Use confidence as the weight
   }
   return 0.0f;  // If out of bounds, return a weight of 0
 }
