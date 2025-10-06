@@ -13,6 +13,10 @@ struct TsdfVoxel {
   float distance = 0.0f;
   float weight = 0.0f;
   Color color;
+  // Extended fields for probabilistic integration and uncertainty tracking
+  float variance = 0.0f;   // variance of distance
+  float alpha = 0.0f;      // Beta distribution parameter (successes)
+  float beta = 0.0f;       // Beta distribution parameter (failures)
 };
 
 struct EsdfVoxel {

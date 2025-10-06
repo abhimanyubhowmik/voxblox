@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <list>
+#include <atomic>
 
 namespace voxblox {
 
@@ -214,27 +215,127 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
   // Lookup the mutex that is responsible for this voxel and lock it
   std::lock_guard<std::mutex> lock(mutexes_.get(global_voxel_idx));
 
-  const float new_weight = (tsdf_voxel->weight + updated_weight)/2 ;
+  // Initialize alpha/beta if needed
+  if (tsdf_voxel->alpha <= 0.0f && tsdf_voxel->beta <= 0.0f) {
+    tsdf_voxel->alpha = config_.init_alpha;
+    tsdf_voxel->beta = config_.init_beta;
+  }
 
-  // it is possible to have weights very close to zero, due to the limited
-  // precision of floating points dividing by this small value can cause nans
-  if (new_weight < kFloatEpsilon) {
+  // Observed confidence C_t from confidence image (already computed via getVoxelWeight logic above)
+  // Here we interpret 'weight' passed in as observed confidence sample C_t in [0,1]
+  // Use a small floor to avoid zero-confidence freezing updates.
+  const float min_observed_confidence = 0.05f;
+  float observed_confidence = std::max(0.0f, std::min(1.0f, updated_weight));
+  observed_confidence = std::max(observed_confidence, min_observed_confidence);
+
+  // Previous belief confidence
+  const float prev_confidence_denom = tsdf_voxel->alpha + tsdf_voxel->beta;
+  const float prev_confidence =
+      (prev_confidence_denom > kFloatEpsilon)
+          ? (tsdf_voxel->alpha / prev_confidence_denom)
+          : 0.5f;
+
+  // Exponential forgetting update for alpha, beta
+  const float lambda_f = config_.lambda_forgetting;
+  tsdf_voxel->alpha = lambda_f * tsdf_voxel->alpha + observed_confidence;
+  tsdf_voxel->beta = lambda_f * tsdf_voxel->beta + (1.0f - observed_confidence);
+  VLOG(1) << "ObsConf=" << observed_confidence << " PrevConf=" << prev_confidence
+          << " Alpha=" << tsdf_voxel->alpha << " Beta=" << tsdf_voxel->beta;
+
+  // Current confidence (expectation of Beta)
+  const float confidence_denom = tsdf_voxel->alpha + tsdf_voxel->beta;
+  const float current_confidence =
+      (confidence_denom > kFloatEpsilon)
+          ? (tsdf_voxel->alpha / confidence_denom)
+          : 0.5f;
+
+  // IMM weights a1 (previous model) and a2 (observed model)
+  float a1 = config_.imm_use_confidence_mixing ? prev_confidence : config_.imm_a1_fixed;
+  float a2 = config_.imm_use_confidence_mixing ? observed_confidence : config_.imm_a2_fixed;
+  // normalize to ensure sum to 1 and avoid degenerate cases
+  const float a_sum = std::max(kFloatEpsilon, a1 + a2);
+  a1 /= a_sum;
+  a2 /= a_sum;
+  VLOG(1) << "IMM a1=" << a1 << " a2=" << a2;
+
+  // Observed distance and variance
+  const float dist_observed = sdf;
+  const float var_observed = (std::abs(dist_observed) > kFloatEpsilon)
+                                 ? (1.0f / (dist_observed * dist_observed))
+                                 : std::max(0.0f, config_.observed_variance);
+  VLOG(1) << "SDF obs=" << dist_observed << " var_obs=" << var_observed;
+
+  // Previous distance and variance (ensure initialized)
+  const float prev_dist = tsdf_voxel->distance;
+  const float prev_var = std::max(0.0f, tsdf_voxel->variance);
+
+  // If this voxel is effectively uninitialized, seed it directly from observation
+  if (tsdf_voxel->weight <= kFloatEpsilon && tsdf_voxel->variance <= kFloatEpsilon &&
+      tsdf_voxel->alpha <= kFloatEpsilon && tsdf_voxel->beta <= kFloatEpsilon) {
+    VLOG(1) << "Initializing voxel at idx=" << global_voxel_idx.transpose();
+    initializeVoxel(dist_observed, color, observed_confidence, tsdf_voxel);
     return;
   }
 
-  const float new_sdf =
-      (sdf * updated_weight + tsdf_voxel->distance * tsdf_voxel->weight) /
-      (tsdf_voxel->weight + updated_weight);
+  // IMM-style fused mean
+  const float dist_new = a1 * prev_dist + a2 * dist_observed;
 
-  // color blending is expensive only do it close to the surface
+  // IMM-style fused variance: E[x^2] - (E[x])^2 with mixture of second moments
+  const float second_moment_prev = prev_var + prev_dist * prev_dist;
+  const float second_moment_obs = var_observed + dist_observed * dist_observed;
+  float var_new = a1 * second_moment_prev + a2 * second_moment_obs - dist_new * dist_new;
+  if (var_new < 0.0f) {
+    var_new = 0.0f;
+  }
+  VLOG(1) << "Prev(dist,var)=(" << prev_dist << "," << prev_var << ") New(dist,var)=(" << dist_new << "," << var_new << ")";
+
+  // Clamp the new distance within truncation bounds
+  const float clamped_dist =
+      (dist_new > 0.0f) ? std::min(config_.default_truncation_distance, dist_new)
+                        : std::max(-config_.default_truncation_distance, dist_new);
+
+  // Color blending only near the surface (unchanged)
   if (std::abs(sdf) < config_.default_truncation_distance) {
     tsdf_voxel->color = Color::blendTwoColors(
         tsdf_voxel->color, tsdf_voxel->weight, color, updated_weight);
   }
-  tsdf_voxel->distance =
-      (new_sdf > 0.0) ? std::min(config_.default_truncation_distance, new_sdf)
-                      : std::max(-config_.default_truncation_distance, new_sdf);
-  tsdf_voxel->weight = std::min(config_.max_weight, new_weight);
+
+  // Assign updates
+  tsdf_voxel->distance = clamped_dist;
+  tsdf_voxel->variance = var_new;
+  // Keep original weight field for compatibility, optionally tie to confidence
+  // Do not exceed max_weight
+  tsdf_voxel->weight = updated_weight;
+}
+
+void TsdfIntegratorBase::initializeVoxel(const float sdf_observed, const Color& color,
+                       const float observed_confidence,
+                       TsdfVoxel* tsdf_voxel) {
+  DCHECK(tsdf_voxel != nullptr);
+  const float clamped_seed =
+      (sdf_observed > 0.0f)
+          ? std::min(config_.default_truncation_distance, sdf_observed)
+          : std::max(-config_.default_truncation_distance, sdf_observed);
+
+  const float var_observed = (std::abs(sdf_observed) > kFloatEpsilon)
+                                 ? (1.0f / (sdf_observed * sdf_observed))
+                                 : std::max(0.0f, config_.observed_variance);
+
+  // Initialize Beta parameters from config priors and one observation
+  tsdf_voxel->alpha = config_.init_alpha + observed_confidence;
+  tsdf_voxel->beta = config_.init_beta + (1.0f - observed_confidence);
+
+  // Initialize fields
+  tsdf_voxel->distance = clamped_seed;
+  tsdf_voxel->variance = var_observed;
+
+  // Seed color near surface
+  if (std::abs(sdf_observed) < config_.default_truncation_distance) {
+    tsdf_voxel->color = Color::blendTwoColors(tsdf_voxel->color, 0.0f, color, 1.0f);
+  }
+
+  // Initialize legacy weight field with observed confidence
+  tsdf_voxel->weight = std::min(config_.max_weight, observed_confidence);
 }
 
 // Thread safe.
@@ -279,15 +380,22 @@ float TsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
   // Depth of the point_C
   const FloatingPoint dist_z = std::abs(point_C.z());
 
+  static std::atomic<bool> warned_empty_image(false);
+  if (confidence_image_.empty() && !warned_empty_image.exchange(true)) {
+    LOG(WARNING) << "Confidence image is empty; weights will be 0 unless use_const_weight is true.";
+  }
+
   // Check bounds and get confidence value from the image
   if (u >= 0 && u < confidence_image_.cols && v >= 0 && v < confidence_image_.rows) {
     float confidence = confidence_image_.at<float>(v, u);
     if (dist_z > kEpsilon)
     {
+      VLOG(2) << "getVoxelWeight (u,v)=(" << u << "," << v << ") depth_z=" << dist_z << " confidence=" << confidence;
       return confidence;
     }
     // return confidence;  // Use confidence as the weight
   }
+  VLOG(2) << "getVoxelWeight out-of-bounds/zero-depth (u,v)=(" << u << "," << v << ") depth_z=" << dist_z << " -> 0";
   return 0.0f;  // If out of bounds, return a weight of 0
 }
 
@@ -658,6 +766,14 @@ std::string TsdfIntegratorBase::Config::print() const {
   ss << " - use_sparsity_compensation_factor:          " << use_sparsity_compensation_factor << "\n";
   ss << " - sparsity_compensation_factor:              "  << sparsity_compensation_factor << "\n";
   ss << " - integrator_threads:                        " << integrator_threads << "\n";
+  ss << " Probabilistic: \n";
+  ss << " - lambda_forgetting:                         " << lambda_forgetting << "\n";
+  ss << " - init_alpha:                                " << init_alpha << "\n";
+  ss << " - init_beta:                                 " << init_beta << "\n";
+  ss << " - observed_variance:                         " << observed_variance << "\n";
+  ss << " - imm_use_confidence_mixing:                 " << imm_use_confidence_mixing << "\n";
+  ss << " - imm_a1_fixed:                              " << imm_a1_fixed << "\n";
+  ss << " - imm_a2_fixed:                              " << imm_a2_fixed << "\n";
   ss << " MergedTsdfIntegrator: \n";
   ss << " - enable_anti_grazing:                       " << enable_anti_grazing << "\n";
   ss << " FastTsdfIntegrator: \n";

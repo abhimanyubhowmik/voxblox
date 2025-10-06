@@ -100,6 +100,19 @@ class TsdfIntegratorBase {
     /// fast integrator specific
     float max_integration_time_s = std::numeric_limits<float>::max();
 
+    // Extended probabilistic integration parameters
+    // Exponential forgetting factor (0 < lambda_forgetting <= 1)
+    float lambda_forgetting = 0.95f;
+    // Initial alpha/beta for Beta distribution prior
+    float init_alpha = 1.0f;
+    float init_beta = 1.0f;
+    // Default observed variance for the SDF measurement model
+    float observed_variance = 0.01f;
+    // IMM mixing policy: if true, a1=prev_confidence, a2=observed_confidence; otherwise fixed a1,a2
+    bool imm_use_confidence_mixing = true;
+    float imm_a1_fixed = 0.5f;
+    float imm_a2_fixed = 0.5f;
+
     std::string print() const;
   };
 
@@ -171,6 +184,11 @@ class TsdfIntegratorBase {
   void updateTsdfVoxel(const Point& origin, const Point& point_G,
                        const GlobalIndex& global_voxel_index,
                        const Color& color, const float weight,
+                       TsdfVoxel* tsdf_voxel);
+
+  // Initializes a previously unseen voxel using current observation and confidence.
+  void initializeVoxel(const float sdf_observed, const Color& color,
+                       const float observed_confidence,
                        TsdfVoxel* tsdf_voxel);
 
   /// Calculates TSDF distance, Thread safe.
