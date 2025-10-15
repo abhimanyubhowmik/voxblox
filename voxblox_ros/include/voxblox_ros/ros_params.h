@@ -108,6 +108,23 @@ inline TsdfIntegratorBase::Config getTsdfIntegratorConfigFromRosParam(
                    integrator_config.integration_order_mode,
                    integrator_config.integration_order_mode);
 
+  // Extended probabilistic integration parameters
+  nh_private.param("lambda_forgetting", integrator_config.lambda_forgetting,
+                   integrator_config.lambda_forgetting);
+  nh_private.param("init_alpha", integrator_config.init_alpha,
+                   integrator_config.init_alpha);
+  nh_private.param("init_beta", integrator_config.init_beta,
+                   integrator_config.init_beta);
+  nh_private.param("observed_variance", integrator_config.observed_variance,
+                   integrator_config.observed_variance);
+  nh_private.param("imm_use_confidence_mixing",
+                   integrator_config.imm_use_confidence_mixing,
+                   integrator_config.imm_use_confidence_mixing);
+  nh_private.param("imm_a1_fixed", integrator_config.imm_a1_fixed,
+                   integrator_config.imm_a1_fixed);
+  nh_private.param("imm_a2_fixed", integrator_config.imm_a2_fixed,
+                   integrator_config.imm_a2_fixed);
+
   integrator_config.default_truncation_distance =
       static_cast<float>(truncation_distance);
   integrator_config.max_weight = static_cast<float>(max_weight);
