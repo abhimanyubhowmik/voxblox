@@ -293,6 +293,20 @@ inline bool visualizeWeightIntensityTsdfVoxelsNearSurface(
   return false;
 }
 
+// Visualize TSDF voxel variance as intensity near the surface.
+inline bool visualizeVarianceIntensityTsdfVoxelsNearSurface(
+    const TsdfVoxel& voxel, const Point& /*coord*/, double surface_distance,
+    double* intensity) {
+  CHECK_NOTNULL(intensity);
+  constexpr float kMinWeight = 1e-3;
+  if (voxel.weight > kMinWeight &&
+      std::abs(voxel.distance) < surface_distance) {
+    *intensity = voxel.variance;  // Use variance field as intensity.
+    return true;
+  }
+  return false;
+}
+
 inline bool visualizeDistanceIntensityTsdfVoxelsSlice(
     const TsdfVoxel& voxel, const Point& coord, unsigned int free_plane_index,
     FloatingPoint free_plane_val, FloatingPoint voxel_size, double* intensity) {
@@ -450,6 +464,17 @@ inline void createSurfaceWeightPointcloudFromTsdfLayer(
   createColorPointcloudFromLayer<TsdfVoxel>(
       layer,
       std::bind(&visualizeWeightIntensityTsdfVoxelsNearSurface, ph::_1,
+                ph::_2, surface_distance, ph::_3),
+      pointcloud);
+}
+
+inline void createSurfaceVariancePointcloudFromTsdfLayer(
+    const Layer<TsdfVoxel>& layer, double surface_distance,
+    pcl::PointCloud<pcl::PointXYZI>* pointcloud) {
+  CHECK_NOTNULL(pointcloud);
+  createColorPointcloudFromLayer<TsdfVoxel>(
+      layer,
+      std::bind(&visualizeVarianceIntensityTsdfVoxelsNearSurface, ph::_1,
                 ph::_2, surface_distance, ph::_3),
       pointcloud);
 }

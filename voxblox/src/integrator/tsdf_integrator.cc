@@ -237,8 +237,9 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
 
   // Exponential forgetting update for alpha, beta
   const float lambda_f = config_.lambda_forgetting;
-  tsdf_voxel->alpha = lambda_f * tsdf_voxel->alpha + observed_confidence;
-  tsdf_voxel->beta = lambda_f * tsdf_voxel->beta + (1.0f - observed_confidence);
+  const float rho = config_.rho;
+  tsdf_voxel->alpha = lambda_f * tsdf_voxel->alpha + (1.0f - lambda_f) * rho * observed_confidence;
+  tsdf_voxel->beta = lambda_f * tsdf_voxel->beta + (1.0f - lambda_f) * rho * (1.0f - observed_confidence);
   VLOG(1) << "ObsConf=" << observed_confidence << " PrevConf=" << prev_confidence
           << " Alpha=" << tsdf_voxel->alpha << " Beta=" << tsdf_voxel->beta;
 
@@ -768,6 +769,7 @@ std::string TsdfIntegratorBase::Config::print() const {
   ss << " - integrator_threads:                        " << integrator_threads << "\n";
   ss << " Probabilistic: \n";
   ss << " - lambda_forgetting:                         " << lambda_forgetting << "\n";
+  ss << " - rho:                                       " << rho << "\n";
   ss << " - init_alpha:                                " << init_alpha << "\n";
   ss << " - init_beta:                                 " << init_beta << "\n";
   ss << " - observed_variance:                         " << observed_variance << "\n";

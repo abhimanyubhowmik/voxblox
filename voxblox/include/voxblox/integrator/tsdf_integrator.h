@@ -102,7 +102,9 @@ class TsdfIntegratorBase {
 
     // Extended probabilistic integration parameters
     // Exponential forgetting factor (0 < lambda_forgetting <= 1)
-    float lambda_forgetting = 0.95f;
+    float lambda_forgetting = 0.95f; 
+    // Evidence Strength (0 < rho <= 1)
+    float rho = 0.5f;
     // Initial alpha/beta for Beta distribution prior
     float init_alpha = 1.0f;
     float init_beta = 1.0f;
