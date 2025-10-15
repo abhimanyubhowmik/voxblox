@@ -186,16 +186,6 @@ class TsdfIntegratorBase {
                        const Color& color, const float weight, const float confidence,
                        TsdfVoxel* tsdf_voxel);
 
-  // Updates alpha/beta with forgetting, computes prev/current confidence and IMM weights.
-  void updateConfidence(const float observed_confidence, TsdfVoxel* tsdf_voxel,
-                        float* prev_confidence, float* current_confidence,
-                        float* a1, float* a2) const;
-
-  // Computes fused distance and variance using IMM-style mixing.
-  void updateVariance(const float dist_observed, const float prev_dist,
-                      const float prev_var, const float a1, const float a2,
-                      float* dist_new, float* var_new) const;
-
   // Initializes a previously unseen voxel using current observation and confidence.
   void initializeVoxel(const float sdf_observed, const Color& color,
                        const float updated_weight, const float current_confidence,
