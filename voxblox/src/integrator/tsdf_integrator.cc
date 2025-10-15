@@ -147,11 +147,67 @@ void TsdfIntegratorBase::updateLayerWithStoredBlocks() {
   temp_block_map_.clear();
 }
 
+// Helper for updating confidence and IMM weights.
+void TsdfIntegratorBase::updateConfidence(const float observed_confidence,
+                        TsdfVoxel* tsdf_voxel,
+                        float* prev_confidence, float* current_confidence,
+                        float* a1, float* a2) const {
+  DCHECK(tsdf_voxel != nullptr);
+  DCHECK(prev_confidence != nullptr);
+  DCHECK(current_confidence != nullptr);
+  DCHECK(a1 != nullptr);
+  DCHECK(a2 != nullptr);
+
+  const float prev_conf_denom = tsdf_voxel->alpha + tsdf_voxel->beta;
+  *prev_confidence =
+      (prev_conf_denom > kFloatEpsilon)
+          ? (tsdf_voxel->alpha / prev_conf_denom)
+          : 0.5f;
+
+  const float lambda_f = config_.lambda_forgetting;
+  tsdf_voxel->alpha = lambda_f * tsdf_voxel->alpha + observed_confidence;
+  tsdf_voxel->beta = lambda_f * tsdf_voxel->beta + (1.0f - observed_confidence);
+
+  const float conf_denom = tsdf_voxel->alpha + tsdf_voxel->beta;
+  *current_confidence =
+      (conf_denom > kFloatEpsilon) ? (tsdf_voxel->alpha / conf_denom) : 0.5f;
+
+  // IMM weights
+  *a1 = config_.imm_use_confidence_mixing ? *prev_confidence : config_.imm_a1_fixed;
+  *a2 = config_.imm_use_confidence_mixing ? observed_confidence : config_.imm_a2_fixed;
+
+  const float a_sum = std::max(kFloatEpsilon, *a1 + *a2);
+  *a1 /= a_sum;
+  *a2 /= a_sum;
+}
+
+// Helper for IMM-style fused mean/variance given previous and observed.
+void TsdfIntegratorBase::updateVariance(const float dist_observed, const float prev_dist,
+                      const float prev_var, const float a1, const float a2,
+                      float* dist_new, float* var_new) const {
+  DCHECK(dist_new != nullptr);
+  DCHECK(var_new != nullptr);
+
+  // Observed variance model
+  const float var_observed = (std::abs(dist_observed) > kFloatEpsilon)
+                                 ? (dist_observed * dist_observed * dist_observed * dist_observed)
+                                 : std::max(0.0f, config_.observed_variance);
+
+  *dist_new = a1 * prev_dist + a2 * dist_observed;
+
+  const float second_moment_prev = prev_var + prev_dist * prev_dist;
+  const float second_moment_obs = var_observed + dist_observed * dist_observed;
+  *var_new = a1 * second_moment_prev + a2 * second_moment_obs - (*dist_new) * (*dist_new);
+  if (*var_new < 0.0f) {
+    *var_new = 0.0f;
+  }
+}
+
 // Updates tsdf_voxel. Thread safe.
 void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
                                          const Point& point_G,
                                          const GlobalIndex& global_voxel_idx,
-                                         const Color& color, const float weight,
+                                         const Color& color, const float weight, const float confidence,
                                          TsdfVoxel* tsdf_voxel) {
   DCHECK(tsdf_voxel != nullptr);
 
@@ -165,13 +221,17 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
   // that in getVoxelWeight as here we have the actual SDF for the voxel
   // already computed.
   const FloatingPoint dropoff_epsilon = voxel_size_;
-  // if (config_.use_weight_dropoff && sdf < -dropoff_epsilon) {
-  //   updated_weight = weight * (config_.default_truncation_distance + sdf) /
-  //                    (config_.default_truncation_distance - dropoff_epsilon);
-  //   updated_weight = std::max(updated_weight, 0.0f);
-  // }
-
   if (config_.use_weight_dropoff && sdf < -dropoff_epsilon) {
+    updated_weight = weight * (config_.default_truncation_distance + sdf) /
+                     (config_.default_truncation_distance - dropoff_epsilon);
+    updated_weight = std::max(updated_weight, 0.0f);
+  }
+
+
+  float observed_confidence = confidence;
+
+  if (sdf < -dropoff_epsilon) {
+
     float uForPointG = fx_ * (point_G.x() / point_G.z()) + cx_;
     float vForPointG = fy_ * (point_G.y() / point_G.z()) + cy_;
 
@@ -179,27 +239,32 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
 
     if (uForPointG >= 0 && uForPointG < confidence_image_.cols && vForPointG >= 0 && vForPointG < confidence_image_.rows) {
     
-    float confidence = confidence_image_.at<float>(vForPointG, uForPointG);
+    float confidence_from_image = confidence_image_.at<float>(vForPointG, uForPointG);
       
       if (dist_zForG > kEpsilon) {
-        updated_weight = confidence;
+        observed_confidence = confidence_from_image;
       }
-    
-    // updated_weight = confidence;  // Use confidence as the weight
     }
   }
   else if (-dropoff_epsilon < sdf)
   {
-    updated_weight = weight;
+    observed_confidence = confidence;
   }
   else if (sdf < - config_.default_truncation_distance)
   {
-    updated_weight = 0.0f;
+    observed_confidence = 0.0f;
   }
-  
-  updated_weight = std::max(updated_weight, 0.0f);
-  
 
+    
+
+  // Use a small floor to avoid zero-confidence freezing updates.
+  const float min_observed_confidence = 0.05f;
+  
+  observed_confidence = std::max(observed_confidence, min_observed_confidence);
+
+  // observed_confidence = std::max(observed_confidence, 0.0f);
+  // Compute the updated weight in case we compensate for sparsity. By
+  
   // Compute the updated weight in case we compensate for sparsity. By
   // multiplicating the weight of occupied areas (|sdf| < truncation distance)
   // by a factor, we prevent to easily fade out these areas with the free
@@ -220,50 +285,18 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
     tsdf_voxel->alpha = config_.init_alpha;
     tsdf_voxel->beta = config_.init_beta;
   }
-
-  // Observed confidence C_t from confidence image (already computed via getVoxelWeight logic above)
-  // Here we interpret 'weight' passed in as observed confidence sample C_t in [0,1]
-  // Use a small floor to avoid zero-confidence freezing updates.
-  const float min_observed_confidence = 0.05f;
-  float observed_confidence = std::max(0.0f, std::min(1.0f, updated_weight));
-  observed_confidence = std::max(observed_confidence, min_observed_confidence);
-
-  // Previous belief confidence
-  const float prev_confidence_denom = tsdf_voxel->alpha + tsdf_voxel->beta;
-  const float prev_confidence =
-      (prev_confidence_denom > kFloatEpsilon)
-          ? (tsdf_voxel->alpha / prev_confidence_denom)
-          : 0.5f;
-
-  // Exponential forgetting update for alpha, beta
-  const float lambda_f = config_.lambda_forgetting;
-  tsdf_voxel->alpha = lambda_f * tsdf_voxel->alpha + observed_confidence;
-  tsdf_voxel->beta = lambda_f * tsdf_voxel->beta + (1.0f - observed_confidence);
+  float prev_confidence = 0.0f;
+  float current_confidence = 0.0f;
+  float a1 = 0.0f;
+  float a2 = 0.0f;
+  updateConfidence(observed_confidence, tsdf_voxel,
+                   &prev_confidence, &current_confidence, &a1, &a2);
   VLOG(1) << "ObsConf=" << observed_confidence << " PrevConf=" << prev_confidence
           << " Alpha=" << tsdf_voxel->alpha << " Beta=" << tsdf_voxel->beta;
-
-  // Current confidence (expectation of Beta)
-  const float confidence_denom = tsdf_voxel->alpha + tsdf_voxel->beta;
-  const float current_confidence =
-      (confidence_denom > kFloatEpsilon)
-          ? (tsdf_voxel->alpha / confidence_denom)
-          : 0.5f;
-
-  // IMM weights a1 (previous model) and a2 (observed model)
-  float a1 = config_.imm_use_confidence_mixing ? prev_confidence : config_.imm_a1_fixed;
-  float a2 = config_.imm_use_confidence_mixing ? observed_confidence : config_.imm_a2_fixed;
-  // normalize to ensure sum to 1 and avoid degenerate cases
-  const float a_sum = std::max(kFloatEpsilon, a1 + a2);
-  a1 /= a_sum;
-  a2 /= a_sum;
   VLOG(1) << "IMM a1=" << a1 << " a2=" << a2;
 
-  // Observed distance and variance
+  // Observed distance
   const float dist_observed = sdf;
-  const float var_observed = (std::abs(dist_observed) > kFloatEpsilon)
-                                 ? (1.0f / (dist_observed * dist_observed))
-                                 : std::max(0.0f, config_.observed_variance);
-  VLOG(1) << "SDF obs=" << dist_observed << " var_obs=" << var_observed;
 
   // Previous distance and variance (ensure initialized)
   const float prev_dist = tsdf_voxel->distance;
@@ -273,20 +306,13 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
   if (tsdf_voxel->weight <= kFloatEpsilon && tsdf_voxel->variance <= kFloatEpsilon &&
       tsdf_voxel->alpha <= kFloatEpsilon && tsdf_voxel->beta <= kFloatEpsilon) {
     VLOG(1) << "Initializing voxel at idx=" << global_voxel_idx.transpose();
-    initializeVoxel(dist_observed, color, observed_confidence, tsdf_voxel);
+    initializeVoxel(dist_observed, color, updated_weight, current_confidence, tsdf_voxel);
     return;
   }
 
-  // IMM-style fused mean
-  const float dist_new = a1 * prev_dist + a2 * dist_observed;
-
-  // IMM-style fused variance: E[x^2] - (E[x])^2 with mixture of second moments
-  const float second_moment_prev = prev_var + prev_dist * prev_dist;
-  const float second_moment_obs = var_observed + dist_observed * dist_observed;
-  float var_new = a1 * second_moment_prev + a2 * second_moment_obs - dist_new * dist_new;
-  if (var_new < 0.0f) {
-    var_new = 0.0f;
-  }
+  float dist_new = 0.0f;
+  float var_new = 0.0f;
+  updateVariance(dist_observed, prev_dist, prev_var, a1, a2, &dist_new, &var_new);
   VLOG(1) << "Prev(dist,var)=(" << prev_dist << "," << prev_var << ") New(dist,var)=(" << dist_new << "," << var_new << ")";
 
   // Clamp the new distance within truncation bounds
@@ -306,10 +332,11 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
   // Keep original weight field for compatibility, optionally tie to confidence
   // Do not exceed max_weight
   tsdf_voxel->weight = updated_weight;
+  tsdf_voxel->confidence = current_confidence;
 }
 
 void TsdfIntegratorBase::initializeVoxel(const float sdf_observed, const Color& color,
-                       const float observed_confidence,
+                       const float updated_weight, const float current_confidence,
                        TsdfVoxel* tsdf_voxel) {
   DCHECK(tsdf_voxel != nullptr);
   const float clamped_seed =
@@ -318,12 +345,12 @@ void TsdfIntegratorBase::initializeVoxel(const float sdf_observed, const Color& 
           : std::max(-config_.default_truncation_distance, sdf_observed);
 
   const float var_observed = (std::abs(sdf_observed) > kFloatEpsilon)
-                                 ? (1.0f / (sdf_observed * sdf_observed))
+                                 ? (sdf_observed * sdf_observed * sdf_observed * sdf_observed)
                                  : std::max(0.0f, config_.observed_variance);
 
   // Initialize Beta parameters from config priors and one observation
-  tsdf_voxel->alpha = config_.init_alpha + observed_confidence;
-  tsdf_voxel->beta = config_.init_beta + (1.0f - observed_confidence);
+  tsdf_voxel->alpha = config_.init_alpha + current_confidence;
+  tsdf_voxel->beta = config_.init_beta + (1.0f - current_confidence);
 
   // Initialize fields
   tsdf_voxel->distance = clamped_seed;
@@ -335,7 +362,8 @@ void TsdfIntegratorBase::initializeVoxel(const float sdf_observed, const Color& 
   }
 
   // Initialize legacy weight field with observed confidence
-  tsdf_voxel->weight = std::min(config_.max_weight, observed_confidence);
+  tsdf_voxel->weight = std::min(config_.max_weight, updated_weight);
+  tsdf_voxel->confidence = current_confidence;
 }
 
 // Thread safe.
@@ -358,21 +386,19 @@ float TsdfIntegratorBase::computeDistance(const Point& origin,
 }
 
 // Thread safe.
-// float TsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
-//   if (config_.use_const_weight) {
-//     return 1.0f;
-//   }
-//   const FloatingPoint dist_z = std::abs(point_C.z());
-//   if (dist_z > kEpsilon) {
-//     return 1.0f / (dist_z * dist_z);
-//   }
-//   return 0.0f;
-// }
-
 float TsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
   if (config_.use_const_weight) {
     return 1.0f;
   }
+  const FloatingPoint dist_z = std::abs(point_C.z());
+  if (dist_z > kEpsilon) {
+    return 1.0f / (dist_z * dist_z);
+  }
+  return 0.0f;
+}
+
+float TsdfIntegratorBase::getVoxelConfidence(const Point& point_C) const {
+
   // We need to check the condition later
   // Project 3D point to 2D pixel coordinates
   float u = fx_ * (point_C.x() / point_C.z()) + cx_;
@@ -382,7 +408,7 @@ float TsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
 
   static std::atomic<bool> warned_empty_image(false);
   if (confidence_image_.empty() && !warned_empty_image.exchange(true)) {
-    LOG(WARNING) << "Confidence image is empty; weights will be 0 unless use_const_weight is true.";
+    LOG(WARNING) << "Confidence image is empty";
   }
 
   // Check bounds and get confidence value from the image
@@ -390,13 +416,13 @@ float TsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
     float confidence = confidence_image_.at<float>(v, u);
     if (dist_z > kEpsilon)
     {
-      VLOG(2) << "getVoxelWeight (u,v)=(" << u << "," << v << ") depth_z=" << dist_z << " confidence=" << confidence;
+      VLOG(2) << "getVoxelConfidence (u,v)=(" << u << "," << v << ") depth_z=" << dist_z << " confidence=" << confidence;
       return confidence;
     }
-    // return confidence;  // Use confidence as the weight
+    // return confidence;  // Use confidence as the confidence
   }
-  VLOG(2) << "getVoxelWeight out-of-bounds/zero-depth (u,v)=(" << u << "," << v << ") depth_z=" << dist_z << " -> 0";
-  return 0.0f;  // If out of bounds, return a weight of 0
+  VLOG(2) << "getVoxelConfidence out-of-bounds/zero-depth (u,v)=(" << u << "," << v << ") depth_z=" << dist_z << " -> 0";
+  return 0.0f;  // If out of bounds, return a confidence of 0
 }
 
 
@@ -459,8 +485,9 @@ void SimpleTsdfIntegrator::integrateFunction(const Transformation& T_G_C,
           allocateStorageAndGetVoxelPtr(global_voxel_idx, &block, &block_idx);
 
       const float weight = getVoxelWeight(point_C);
+      const float confidence = getVoxelConfidence(point_C);
 
-      updateTsdfVoxel(origin, point_G, global_voxel_idx, color, weight, voxel);
+      updateTsdfVoxel(origin, point_G, global_voxel_idx, color, weight,confidence, voxel);
     }
   }
 }
@@ -544,20 +571,27 @@ void MergedTsdfIntegrator::integrateVoxel(
   Color merged_color;
   Point merged_point_C = Point::Zero();
   FloatingPoint merged_weight = 0.0;
+  float merged_confidence = 0.0f;
 
   for (const size_t pt_idx : kv.second) {
     const Point& point_C = points_C[pt_idx];
     const Color& color = colors[pt_idx];
 
     const float point_weight = getVoxelWeight(point_C);
+    const float point_confidence = getVoxelConfidence(point_C);
+
     if (point_weight < kEpsilon) {
       continue;
     }
+    const float new_total_weight = merged_weight + point_weight;
     merged_point_C = (merged_point_C * merged_weight + point_C * point_weight) /
-                     (merged_weight + point_weight);
+                     new_total_weight;
     merged_color =
         Color::blendTwoColors(merged_color, merged_weight, color, point_weight);
-    merged_weight += point_weight;
+    merged_confidence =
+        (merged_confidence * merged_weight + point_confidence * point_weight) /
+        std::max(kFloatEpsilon, new_total_weight);
+    merged_weight = new_total_weight;
 
     // only take first point when clearing
     if (clearing_ray) {
@@ -588,7 +622,7 @@ void MergedTsdfIntegrator::integrateVoxel(
         allocateStorageAndGetVoxelPtr(global_voxel_idx, &block, &block_idx);
 
     updateTsdfVoxel(origin, merged_point_G, global_voxel_idx, merged_color,
-                    merged_weight, voxel);
+                    merged_weight, merged_confidence, voxel);
   }
 }
 
@@ -707,8 +741,9 @@ void FastTsdfIntegrator::integrateFunction(const Transformation& T_G_C,
           allocateStorageAndGetVoxelPtr(global_voxel_idx, &block, &block_idx);
 
       const float weight = getVoxelWeight(point_C);
+      const float confidence = getVoxelConfidence(point_C);
 
-      updateTsdfVoxel(origin, point_G, global_voxel_idx, color, weight, voxel);
+      updateTsdfVoxel(origin, point_G, global_voxel_idx, color, weight,confidence, voxel);
     }
   }
 }

@@ -103,7 +103,6 @@ class TsdfIntegratorBase {
     // Extended probabilistic integration parameters
     // Exponential forgetting factor (0 < lambda_forgetting <= 1)
     float lambda_forgetting = 0.95f; 
-
     // Initial alpha/beta for Beta distribution prior
     float init_alpha = 1.0f;
     float init_beta = 1.0f;
@@ -184,12 +183,22 @@ class TsdfIntegratorBase {
   /// Updates tsdf_voxel, Thread safe.
   void updateTsdfVoxel(const Point& origin, const Point& point_G,
                        const GlobalIndex& global_voxel_index,
-                       const Color& color, const float weight,
+                       const Color& color, const float weight, const float confidence,
                        TsdfVoxel* tsdf_voxel);
+
+  // Updates alpha/beta with forgetting, computes prev/current confidence and IMM weights.
+  void updateConfidence(const float observed_confidence, TsdfVoxel* tsdf_voxel,
+                        float* prev_confidence, float* current_confidence,
+                        float* a1, float* a2) const;
+
+  // Computes fused distance and variance using IMM-style mixing.
+  void updateVariance(const float dist_observed, const float prev_dist,
+                      const float prev_var, const float a1, const float a2,
+                      float* dist_new, float* var_new) const;
 
   // Initializes a previously unseen voxel using current observation and confidence.
   void initializeVoxel(const float sdf_observed, const Color& color,
-                       const float observed_confidence,
+                       const float updated_weight, const float current_confidence,
                        TsdfVoxel* tsdf_voxel);
 
   /// Calculates TSDF distance, Thread safe.
@@ -198,6 +207,7 @@ class TsdfIntegratorBase {
 
   /// Thread safe.
   float getVoxelWeight(const Point& point_C) const;
+  float getVoxelConfidence(const Point& point_C) const;
 
   Config config_;
 

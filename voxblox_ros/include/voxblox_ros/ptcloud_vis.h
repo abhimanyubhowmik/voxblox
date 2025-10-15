@@ -280,6 +280,19 @@ inline bool visualizeDistanceIntensityTsdfVoxelsNearSurface(
   return false;
 }
 
+inline bool visualizeConfidenceIntensityTsdfVoxelsNearSurface(
+    const TsdfVoxel& voxel, const Point& /*coord*/, double surface_distance,
+    double* intensity) {
+  CHECK_NOTNULL(intensity);
+  constexpr float kMinConfidence = 1e-3;
+  if (voxel.confidence > kMinConfidence &&
+      std::abs(voxel.distance) < surface_distance) {
+    *intensity = voxel.confidence;  // Set intensity to the voxel's weight.
+    return true;
+  }
+  return false;
+}
+
 inline bool visualizeWeightIntensityTsdfVoxelsNearSurface(
     const TsdfVoxel& voxel, const Point& /*coord*/, double surface_distance,
     double* intensity) {
@@ -298,8 +311,8 @@ inline bool visualizeVarianceIntensityTsdfVoxelsNearSurface(
     const TsdfVoxel& voxel, const Point& /*coord*/, double surface_distance,
     double* intensity) {
   CHECK_NOTNULL(intensity);
-  constexpr float kMinWeight = 1e-3;
-  if (voxel.weight > kMinWeight &&
+  constexpr float kMinVariance = 1e-3;
+  if (voxel.variance > kMinVariance &&
       std::abs(voxel.distance) < surface_distance) {
     *intensity = voxel.variance;  // Use variance field as intensity.
     return true;
@@ -464,6 +477,17 @@ inline void createSurfaceWeightPointcloudFromTsdfLayer(
   createColorPointcloudFromLayer<TsdfVoxel>(
       layer,
       std::bind(&visualizeWeightIntensityTsdfVoxelsNearSurface, ph::_1,
+                ph::_2, surface_distance, ph::_3),
+      pointcloud);
+}
+
+inline void createSurfaceConfidencePointcloudFromTsdfLayer(
+    const Layer<TsdfVoxel>& layer, double surface_distance,
+    pcl::PointCloud<pcl::PointXYZI>* pointcloud) {
+  CHECK_NOTNULL(pointcloud);
+  createColorPointcloudFromLayer<TsdfVoxel>(
+      layer,
+      std::bind(&visualizeConfidenceIntensityTsdfVoxelsNearSurface, ph::_1,
                 ph::_2, surface_distance, ph::_3),
       pointcloud);
 }

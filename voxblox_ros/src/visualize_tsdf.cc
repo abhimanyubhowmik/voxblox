@@ -39,6 +39,15 @@ class SimpleTsdfVisualizer {
         nh_private_.advertise<pcl::PointCloud<pcl::PointXYZRGB>>(
             "tsdf_voxels_confidence_near_surface", 1, true);
 
+    surface_weight_pointcloud_pub_ =
+        nh_private_.advertise<pcl::PointCloud<pcl::PointXYZRGB>>(
+            "tsdf_voxels_weights_near_surface", 1, true);
+
+    surface_variance_pointcloud_pub_ =
+        nh_private_.advertise<pcl::PointCloud<pcl::PointXYZRGB>>(
+            "tsdf_voxels_varience_near_surface", 1, true);
+
+
     tsdf_pointcloud_pub_ =
         nh_private_.advertise<pcl::PointCloud<pcl::PointXYZI>>(
             "all_tsdf_voxels", 1, true);
@@ -90,6 +99,8 @@ class SimpleTsdfVisualizer {
 
   ros::Publisher surface_pointcloud_pub_;
   ros::Publisher surface_confidence_pointcloud_pub_;
+  ros::Publisher surface_weight_pointcloud_pub_;
+  ros::Publisher surface_variance_pointcloud_pub_;
   ros::Publisher tsdf_pointcloud_pub_;
   ros::Publisher mesh_pub_;
   ros::Publisher mesh_pointcloud_pub_;
@@ -125,7 +136,7 @@ void SimpleTsdfVisualizer::run(const Layer<TsdfVoxel>& tsdf_layer) {
     surface_pointcloud_pub_.publish(pointcloud);
   }
 
-    ROS_DEBUG_STREAM("\tVisualize voxel confidence near surface...");
+    ROS_DEBUG_STREAM("\tVisualize voxel weight near surface...");
   {
     pcl::PointCloud<pcl::PointXYZI> pointcloud;
     const FloatingPoint surface_distance_thresh_m =
@@ -134,8 +145,34 @@ void SimpleTsdfVisualizer::run(const Layer<TsdfVoxel>& tsdf_layer) {
         tsdf_layer, surface_distance_thresh_m, &pointcloud);
 
     pointcloud.header.frame_id = tsdf_world_frame_;
+    surface_weight_pointcloud_pub_.publish(pointcloud);
+  }
+
+  ROS_DEBUG_STREAM("\tVisualize voxel confidence near surface...");
+  {
+    pcl::PointCloud<pcl::PointXYZI> pointcloud;
+    const FloatingPoint surface_distance_thresh_m =
+        tsdf_layer.voxel_size() * tsdf_surface_distance_threshold_factor_;
+    voxblox::createSurfaceConfidencePointcloudFromTsdfLayer(
+        tsdf_layer, surface_distance_thresh_m, &pointcloud);
+
+    pointcloud.header.frame_id = tsdf_world_frame_;
     surface_confidence_pointcloud_pub_.publish(pointcloud);
   }
+
+  ROS_DEBUG_STREAM("\tVisualize voxel confidence near surface...");
+  {
+    pcl::PointCloud<pcl::PointXYZI> pointcloud;
+    const FloatingPoint surface_distance_thresh_m =
+        tsdf_layer.voxel_size() * tsdf_surface_distance_threshold_factor_;
+    voxblox::createSurfaceVariancePointcloudFromTsdfLayer(
+        tsdf_layer, surface_distance_thresh_m, &pointcloud);
+
+    pointcloud.header.frame_id = tsdf_world_frame_;
+    surface_confidence_pointcloud_pub_.publish(pointcloud);
+  }
+
+
 
   ROS_DEBUG_STREAM("\tVisualize all voxels...");
   {

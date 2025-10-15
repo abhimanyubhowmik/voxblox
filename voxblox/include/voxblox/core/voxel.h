@@ -12,6 +12,7 @@ namespace voxblox {
 struct TsdfVoxel {
   float distance = 0.0f;
   float weight = 0.0f;
+  float confidence = 0.0f;
   Color color;
   // Extended fields for probabilistic integration and uncertainty tracking
   float variance = 0.0f;   // variance of distance
