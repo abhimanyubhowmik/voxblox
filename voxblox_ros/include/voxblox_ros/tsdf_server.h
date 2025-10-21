@@ -73,6 +73,7 @@ class TsdfServer {
   void publishAllUpdatedTsdfVoxels();
   void publishTsdfSurfacePoints();
   void publishTsdfSurfaceConfidencePoints();
+  void publishTsdfSurfaceWeightPoints();
   void publishTsdfSurfaceVariancePoints();
   void publishTsdfOccupiedNodes();
 
@@ -155,6 +156,7 @@ class TsdfServer {
   ros::Publisher tsdf_pointcloud_pub_;
   ros::Publisher surface_pointcloud_pub_;
   ros::Publisher surface_confidence_pointcloud_pub_;
+  ros::Publisher surface_weight_pointcloud_pub_;
   ros::Publisher surface_variance_pointcloud_pub_;
   ros::Publisher tsdf_slice_pub_;
   ros::Publisher occupancy_marker_pub_;

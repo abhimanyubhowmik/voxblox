@@ -198,7 +198,10 @@ class TsdfIntegratorBase {
 
   /// Thread safe.
   float getVoxelWeight(const Point& point_C) const;
+  float getVoxelConfidence(const Point& point_C) const;
   float getVoxelVariance(const Point& point_C) const;
+
+  
 
   Config config_;
 

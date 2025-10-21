@@ -82,8 +82,6 @@ inline TsdfIntegratorBase::Config getTsdfIntegratorConfigFromRosParam(
                    integrator_config.use_const_weight);
   nh_private.param("use_const_model_variance", integrator_config.use_const_model_variance,
                     integrator_config.use_const_model_variance);
-  ROS_INFO("DEBUG: use_const_weight = %d, use_const_model_variance = %d", 
-           integrator_config.use_const_weight, integrator_config.use_const_model_variance);
   nh_private.param("use_weight_dropoff", integrator_config.use_weight_dropoff,
                    integrator_config.use_weight_dropoff);
   nh_private.param("allow_clear", integrator_config.allow_clear,

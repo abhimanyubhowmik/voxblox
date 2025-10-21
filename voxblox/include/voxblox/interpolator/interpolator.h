@@ -81,6 +81,7 @@ class Interpolator {
 
   static float getVoxelSdf(const VoxelType& voxel);
   static float getVoxelWeight(const VoxelType& voxel);
+  static float getVoxelConfidence(const VoxelType& voxel);
 
   static uint8_t getRed(const VoxelType& voxel);
   static uint8_t getBlue(const VoxelType& voxel);

@@ -358,16 +358,16 @@ float TsdfIntegratorBase::computeDistance(const Point& origin,
 }
 
 // Thread safe.
-// float TsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
-//   if (config_.use_const_weight) {
-//     return 1.0f;
-//   }
-//   const FloatingPoint dist_z = std::abs(point_C.z());
-//   if (dist_z > kEpsilon) {
-//     return 1.0f / (dist_z * dist_z);
-//   }
-//   return 0.0f;
-// }
+float TsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
+  if (config_.use_const_weight) {
+    return 1.0f;
+  }
+  const FloatingPoint dist_z = std::abs(point_C.z());
+  if (dist_z > kEpsilon) {
+    return 1.0f / (dist_z * dist_z);
+  }
+  return 0.0f;
+}
 
 float TsdfIntegratorBase::getVoxelVariance(const Point& point_C) const {
   if (config_.use_const_model_variance) {
@@ -380,7 +380,7 @@ float TsdfIntegratorBase::getVoxelVariance(const Point& point_C) const {
   return 0.0f;
 }
 
-float TsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
+float TsdfIntegratorBase::getVoxelConfidence(const Point& point_C) const {
   if (config_.use_const_weight) {
     return 1.0f;
   }
@@ -401,12 +401,12 @@ float TsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
     float confidence = confidence_image_.at<float>(v, u);
     if (dist_z > kEpsilon)
     {
-      VLOG(2) << "getVoxelWeight (u,v)=(" << u << "," << v << ") depth_z=" << dist_z << " confidence=" << confidence;
+      VLOG(2) << "getVoxelConfidence (u,v)=(" << u << "," << v << ") depth_z=" << dist_z << " confidence=" << confidence;
       return confidence;
     }
     // return confidence;  // Use confidence as the weight
   }
-  VLOG(2) << "getVoxelWeight out-of-bounds/zero-depth (u,v)=(" << u << "," << v << ") depth_z=" << dist_z << " -> 0";
+  VLOG(2) << "getVoxelConfidence out-of-bounds/zero-depth (u,v)=(" << u << "," << v << ") depth_z=" << dist_z << " -> 0";
   return 0.0f;  // If out of bounds, return a weight of 0
 }
 
@@ -469,6 +469,7 @@ void SimpleTsdfIntegrator::integrateFunction(const Transformation& T_G_C,
       TsdfVoxel* voxel =
           allocateStorageAndGetVoxelPtr(global_voxel_idx, &block, &block_idx);
 
+      // const float weight = getVoxelConfidence(point_C);
       const float weight = getVoxelWeight(point_C);
       const float variance = getVoxelVariance(point_C);
 
@@ -562,6 +563,7 @@ void MergedTsdfIntegrator::integrateVoxel(
     const Point& point_C = points_C[pt_idx];
     const Color& color = colors[pt_idx];
 
+    // const float point_weight = getVoxelConfidence(point_C);
     const float point_weight = getVoxelWeight(point_C);
     const float point_variance = getVoxelVariance(point_C);
     if (point_weight < kEpsilon) {
@@ -725,6 +727,7 @@ void FastTsdfIntegrator::integrateFunction(const Transformation& T_G_C,
       TsdfVoxel* voxel =
           allocateStorageAndGetVoxelPtr(global_voxel_idx, &block, &block_idx);
 
+      // const float weight = getVoxelConfidence(point_C);
       const float weight = getVoxelWeight(point_C);
       const float variance = getVoxelVariance(point_C);
 

@@ -59,6 +59,10 @@ TsdfServer::TsdfServer(const ros::NodeHandle& nh,
       nh_private_.advertise<pcl::PointCloud<pcl::PointXYZI> >(
           "surface_pointcloud_confidence", 1, true);
 
+  surface_weight_pointcloud_pub_ =
+      nh_private_.advertise<pcl::PointCloud<pcl::PointXYZI> >(
+          "surface_pointcloud_weight", 1, true);
+
   surface_variance_pointcloud_pub_ =
       nh_private_.advertise<pcl::PointCloud<pcl::PointXYZI> >(
           "surface_pointcloud_variance", 1, true);
@@ -513,6 +517,18 @@ void TsdfServer::publishTsdfSurfaceConfidencePoints() {
   surface_confidence_pointcloud_pub_.publish(pointcloud);
 }
 
+void TsdfServer::publishTsdfSurfaceWeightPoints() {
+  // Create a pointcloud with weight = intensity.
+  pcl::PointCloud<pcl::PointXYZI> pointcloud;
+  const float surface_distance_thresh =
+      tsdf_map_->getTsdfLayer().voxel_size() * 0.75;
+  createSurfaceWeightPointcloudFromTsdfLayer(tsdf_map_->getTsdfLayer(),
+                                       surface_distance_thresh, &pointcloud);
+
+  pointcloud.header.frame_id = world_frame_;
+  surface_weight_pointcloud_pub_.publish(pointcloud);
+}
+
 void TsdfServer::publishTsdfSurfaceVariancePoints() {
   // Create a pointcloud with variance = intensity.
   pcl::PointCloud<pcl::PointXYZI> pointcloud;
@@ -575,6 +591,7 @@ void TsdfServer::publishPointclouds() {
   publishAllUpdatedTsdfVoxels();
   publishTsdfSurfacePoints();
   publishTsdfSurfaceConfidencePoints();
+  publishTsdfSurfaceWeightPoints();
   publishTsdfSurfaceVariancePoints();
   publishTsdfOccupiedNodes();
   if (publish_slices_) {
