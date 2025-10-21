@@ -77,6 +77,7 @@ class TsdfIntegratorBase {
     FloatingPoint min_ray_length_m = 0.1;
     FloatingPoint max_ray_length_m = 5.0;
     bool use_const_weight = false;
+    bool use_const_model_variance = false;
     bool allow_clear = true;
     bool use_weight_dropoff = true;
     bool use_sparsity_compensation_factor = false;
@@ -183,7 +184,7 @@ class TsdfIntegratorBase {
   /// Updates tsdf_voxel, Thread safe.
   void updateTsdfVoxel(const Point& origin, const Point& point_G,
                        const GlobalIndex& global_voxel_index,
-                       const Color& color, const float weight,
+                       const Color& color, const float weight, const float variance,
                        TsdfVoxel* tsdf_voxel);
 
   // Initializes a previously unseen voxel using current observation and confidence.
@@ -197,6 +198,7 @@ class TsdfIntegratorBase {
 
   /// Thread safe.
   float getVoxelWeight(const Point& point_C) const;
+  float getVoxelVariance(const Point& point_C) const;
 
   Config config_;
 

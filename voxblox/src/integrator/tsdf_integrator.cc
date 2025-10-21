@@ -151,7 +151,7 @@ void TsdfIntegratorBase::updateLayerWithStoredBlocks() {
 void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
                                          const Point& point_G,
                                          const GlobalIndex& global_voxel_idx,
-                                         const Color& color, const float weight,
+                                         const Color& color, const float weight, const float variance,
                                          TsdfVoxel* tsdf_voxel) {
   DCHECK(tsdf_voxel != nullptr);
 
@@ -261,7 +261,7 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
   // Observed distance and variance
   const float dist_observed = sdf;
   const float var_observed = (std::abs(dist_observed) > kFloatEpsilon)
-                                 ? (1.0f / (dist_observed * dist_observed))
+                                 ? (variance)
                                  : std::max(0.0f, config_.observed_variance);
   VLOG(1) << "SDF obs=" << dist_observed << " var_obs=" << var_observed;
 
@@ -302,7 +302,7 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
 
   // Assign updates
   tsdf_voxel->distance = clamped_dist;
-  tsdf_voxel->variance = var_new;
+  tsdf_voxel->variance = var_observed;
   // Keep original weight field for compatibility, optionally tie to confidence
   // Do not exceed max_weight
   tsdf_voxel->weight = updated_weight;
@@ -317,9 +317,9 @@ void TsdfIntegratorBase::initializeVoxel(const float sdf_observed, const Color& 
           ? std::min(config_.default_truncation_distance, sdf_observed)
           : std::max(-config_.default_truncation_distance, sdf_observed);
 
-  const float var_observed = (std::abs(sdf_observed) > kFloatEpsilon)
-                                 ? (1.0f / (sdf_observed * sdf_observed))
-                                 : std::max(0.0f, config_.observed_variance);
+  // const float var_observed = (std::abs(sdf_observed) > kFloatEpsilon)
+  //                                ? (sdf_observed)
+  //                                : std::max(0.0f, config_.observed_variance);
 
   // Initialize Beta parameters from config priors and one observation
   tsdf_voxel->alpha = config_.init_alpha + observed_confidence;
@@ -327,7 +327,7 @@ void TsdfIntegratorBase::initializeVoxel(const float sdf_observed, const Color& 
 
   // Initialize fields
   tsdf_voxel->distance = clamped_seed;
-  tsdf_voxel->variance = var_observed;
+  // tsdf_voxel->variance = var_observed;
 
   // Seed color near surface
   if (std::abs(sdf_observed) < config_.default_truncation_distance) {
@@ -368,6 +368,17 @@ float TsdfIntegratorBase::computeDistance(const Point& origin,
 //   }
 //   return 0.0f;
 // }
+
+float TsdfIntegratorBase::getVoxelVariance(const Point& point_C) const {
+  if (config_.use_const_model_variance) {
+    return 1.0f;
+  }
+  const FloatingPoint dist_z = std::abs(point_C.z());
+  if (dist_z > kEpsilon) {
+    return 1.0f * (dist_z * dist_z) * (dist_z * dist_z);
+  }
+  return 0.0f;
+}
 
 float TsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
   if (config_.use_const_weight) {
@@ -459,8 +470,9 @@ void SimpleTsdfIntegrator::integrateFunction(const Transformation& T_G_C,
           allocateStorageAndGetVoxelPtr(global_voxel_idx, &block, &block_idx);
 
       const float weight = getVoxelWeight(point_C);
+      const float variance = getVoxelVariance(point_C);
 
-      updateTsdfVoxel(origin, point_G, global_voxel_idx, color, weight, voxel);
+      updateTsdfVoxel(origin, point_G, global_voxel_idx, color, weight, variance, voxel);
     }
   }
 }
@@ -544,12 +556,14 @@ void MergedTsdfIntegrator::integrateVoxel(
   Color merged_color;
   Point merged_point_C = Point::Zero();
   FloatingPoint merged_weight = 0.0;
+  FloatingPoint merged_var = 0.0;
 
   for (const size_t pt_idx : kv.second) {
     const Point& point_C = points_C[pt_idx];
     const Color& color = colors[pt_idx];
 
     const float point_weight = getVoxelWeight(point_C);
+    const float point_variance = getVoxelVariance(point_C);
     if (point_weight < kEpsilon) {
       continue;
     }
@@ -558,6 +572,11 @@ void MergedTsdfIntegrator::integrateVoxel(
     merged_color =
         Color::blendTwoColors(merged_color, merged_weight, color, point_weight);
     merged_weight += point_weight;
+    if (merged_var == 0.0f) {
+      merged_var = point_variance;
+    } else {
+      merged_var = (merged_var + point_variance) / 2.0f;
+    }
 
     // only take first point when clearing
     if (clearing_ray) {
@@ -588,7 +607,7 @@ void MergedTsdfIntegrator::integrateVoxel(
         allocateStorageAndGetVoxelPtr(global_voxel_idx, &block, &block_idx);
 
     updateTsdfVoxel(origin, merged_point_G, global_voxel_idx, merged_color,
-                    merged_weight, voxel);
+                    merged_weight,merged_var, voxel);
   }
 }
 
@@ -707,8 +726,9 @@ void FastTsdfIntegrator::integrateFunction(const Transformation& T_G_C,
           allocateStorageAndGetVoxelPtr(global_voxel_idx, &block, &block_idx);
 
       const float weight = getVoxelWeight(point_C);
+      const float variance = getVoxelVariance(point_C);
 
-      updateTsdfVoxel(origin, point_G, global_voxel_idx, color, weight, voxel);
+      updateTsdfVoxel(origin, point_G, global_voxel_idx, color, weight, variance, voxel);
     }
   }
 }
@@ -761,6 +781,7 @@ std::string TsdfIntegratorBase::Config::print() const {
   ss << " - min_ray_length_m:                          " << min_ray_length_m << "\n";
   ss << " - max_ray_length_m:                          " << max_ray_length_m << "\n";
   ss << " - use_const_weight:                          " << use_const_weight << "\n";
+  ss << " - use_const_model_variance:                  " << use_const_model_variance << "\n";
   ss << " - allow_clear:                               " << allow_clear << "\n";
   ss << " - use_weight_dropoff:                        " << use_weight_dropoff << "\n";
   ss << " - use_sparsity_compensation_factor:          " << use_sparsity_compensation_factor << "\n";

@@ -18,7 +18,8 @@ slice_level: 1.0
 max_ray_length_m: 15.0
 min_ray_length_m: 0.1
 max_weight: 10000.0
-use_const_weight: True
+use_const_weight: False
+use_const_model_variance: True
 allow_clear: True
 mesh_min_weight: 0.001
 use_masked_tsdf_updates: False
