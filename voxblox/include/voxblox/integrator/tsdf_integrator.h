@@ -13,6 +13,7 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include <voxblox/half.hpp>
 
 #include <glog/logging.h>
 #include <Eigen/Core>
@@ -184,7 +185,7 @@ class TsdfIntegratorBase {
   /// Updates tsdf_voxel, Thread safe.
   void updateTsdfVoxel(const Point& origin, const Point& point_G,
                        const GlobalIndex& global_voxel_index,
-                       const Color& color, const float weight, const float variance,
+                       const Color& color, const float weight, const half_float::half confidence, const half_float::half variance,
                        TsdfVoxel* tsdf_voxel);
 
   // Initializes a previously unseen voxel using current observation and confidence.
@@ -198,8 +199,8 @@ class TsdfIntegratorBase {
 
   /// Thread safe.
   float getVoxelWeight(const Point& point_C) const;
-  float getVoxelConfidence(const Point& point_C) const;
-  float getVoxelVariance(const Point& point_C) const;
+  half_float::half getVoxelConfidence(const Point& point_C) const;
+  half_float::half getVoxelVariance(const Point& point_C) const;
 
   
 

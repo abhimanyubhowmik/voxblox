@@ -7,7 +7,7 @@ find_package(catkin_simple REQUIRED)
 find_package(OpenCV 4 REQUIRED)
 catkin_simple(ALL_DEPS_REQUIRED)
 
-include_directories(${OpenCV_INCLUDE_DIRS} /usr/include/opencv4)
+include_directories(${OpenCV_INCLUDE_DIRS} /usr/include/opencv4 ${CMAKE_CURRENT_SOURCE_DIR}/include/voxblox)
 
 set(CMAKE_MACOSX_RPATH 0)
 add_definitions(-std=c++11 -Wall -Wextra)

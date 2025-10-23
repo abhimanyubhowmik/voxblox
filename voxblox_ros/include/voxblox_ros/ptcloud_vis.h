@@ -293,6 +293,20 @@ inline bool visualizeWeightIntensityTsdfVoxelsNearSurface(
   return false;
 }
 
+// Visualize TSDF voxel confidence as intensity near the surface.
+inline bool visualizeConfidenceIntensityTsdfVoxelsNearSurface(
+    const TsdfVoxel& voxel, const Point& /*coord*/, double surface_distance,
+    double* intensity) {
+  CHECK_NOTNULL(intensity);
+  constexpr float kMinWeight = 1e-3;
+  if (voxel.weight > kMinWeight &&
+      std::abs(voxel.distance) < surface_distance) {
+    *intensity = static_cast<double>(voxel.confidence);  // Use confidence field as intensity.
+    return true;
+  }
+  return false;
+}
+
 // Visualize TSDF voxel variance as intensity near the surface.
 inline bool visualizeVarianceIntensityTsdfVoxelsNearSurface(
     const TsdfVoxel& voxel, const Point& /*coord*/, double surface_distance,
@@ -464,6 +478,17 @@ inline void createSurfaceWeightPointcloudFromTsdfLayer(
   createColorPointcloudFromLayer<TsdfVoxel>(
       layer,
       std::bind(&visualizeWeightIntensityTsdfVoxelsNearSurface, ph::_1,
+                ph::_2, surface_distance, ph::_3),
+      pointcloud);
+}
+
+inline void createSurfaceConfidencePointcloudFromTsdfLayer(
+    const Layer<TsdfVoxel>& layer, double surface_distance,
+    pcl::PointCloud<pcl::PointXYZI>* pointcloud) {
+  CHECK_NOTNULL(pointcloud);
+  createColorPointcloudFromLayer<TsdfVoxel>(
+      layer,
+      std::bind(&visualizeConfidenceIntensityTsdfVoxelsNearSurface, ph::_1,
                 ph::_2, surface_distance, ph::_3),
       pointcloud);
 }

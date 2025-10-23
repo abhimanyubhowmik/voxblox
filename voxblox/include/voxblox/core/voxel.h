@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <voxblox/half.hpp>
 
 #include "voxblox/core/color.h"
 #include "voxblox/core/common.h"
@@ -14,9 +15,13 @@ struct TsdfVoxel {
   float weight = 0.0f;
   Color color;
   // Extended fields for probabilistic integration and uncertainty tracking
-  float variance = 0.0f;   // variance of distance
-  float alpha = 0.0f;      // Beta distribution parameter (successes)
-  float beta = 0.0f;       // Beta distribution parameter (failures)
+  half_float::half confidence = half_float::half(0.0f);  // confidence value
+  half_float::half variance = half_float::half(0.0f);     // variance of distance
+  half_float::half alpha = half_float::half(0.0f);        // Beta distribution parameter (successes)
+  half_float::half beta = half_float::half(0.0f);         // Beta distribution parameter (failures)
+  
+  // Ensure proper alignment and size for serialization compatibility
+  //  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
 struct EsdfVoxel {

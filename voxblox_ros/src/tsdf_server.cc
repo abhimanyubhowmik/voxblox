@@ -506,11 +506,11 @@ void TsdfServer::publishTsdfSurfacePoints() {
 }
 
 void TsdfServer::publishTsdfSurfaceConfidencePoints() {
-  // Create a pointcloud with weight = intensity.
+  // Create a pointcloud with confidence = intensity.
   pcl::PointCloud<pcl::PointXYZI> pointcloud;
   const float surface_distance_thresh =
       tsdf_map_->getTsdfLayer().voxel_size() * 0.75;
-  createSurfaceWeightPointcloudFromTsdfLayer(tsdf_map_->getTsdfLayer(),
+  createSurfaceConfidencePointcloudFromTsdfLayer(tsdf_map_->getTsdfLayer(),
                                        surface_distance_thresh, &pointcloud);
 
   pointcloud.header.frame_id = world_frame_;
