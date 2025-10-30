@@ -1,11 +1,72 @@
 #include "voxblox/integrator/tsdf_integrator.h"
 
 #include <iostream>
+#include <fstream>
+#include <iomanip>
 #include <list>
 #include <atomic>
+#include <chrono>
+#include <ctime>
 #include <voxblox/half.hpp>
+#include <mutex>
 
 namespace voxblox {
+
+// Static logging setup for voxel updates
+static std::mutex voxel_log_mutex;
+static std::ofstream voxel_log_file;
+static std::atomic<bool> voxel_log_enabled{false};
+
+// Initialize logging (can be called from TsdfIntegratorBase constructor)
+void initializeVoxelLogging(const std::string& log_file_path) {
+  std::lock_guard<std::mutex> lock(voxel_log_mutex);
+  if (!voxel_log_file.is_open()) {
+    voxel_log_file.open(log_file_path, std::ios::out | std::ios::app);
+    if (voxel_log_file.is_open()) {
+      voxel_log_enabled = true;
+      // Write header
+      voxel_log_file << "# Timestamp, VoxelIndex(x,y,z), Confidence, Distance, Variance, Weight, Alpha, Beta, ObservedConfidence\n";
+      voxel_log_file << std::fixed << std::setprecision(6);
+      voxel_log_file.flush();
+    }
+  }
+}
+
+// Log voxel update data
+void logVoxelUpdate(const GlobalIndex& global_voxel_idx,
+                   float confidence, float distance, float variance, float weight,
+                   float alpha, float beta, float observed_confidence) {
+  if (!voxel_log_enabled.load()) {
+    return;
+  }
+  
+  std::lock_guard<std::mutex> lock(voxel_log_mutex);
+  
+  if (voxel_log_file.is_open() && voxel_log_file.good()) {
+    // Get timestamp
+    auto now = std::chrono::system_clock::now();
+    auto time_since_epoch = now.time_since_epoch();
+    auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(time_since_epoch).count();
+    
+    voxel_log_file << millis << ","
+                   << global_voxel_idx.x() << ","
+                   << global_voxel_idx.y() << ","
+                   << global_voxel_idx.z() << ","
+                   << confidence << ","
+                   << distance << ","
+                   << variance << ","
+                   << weight << ","
+                   << alpha << ","
+                   << beta << ","
+                   << observed_confidence << "\n";
+    
+    // Flush every 100 updates to reduce I/O overhead
+    static int flush_counter = 0;
+    if (++flush_counter % 100 == 0) {
+      voxel_log_file.flush();
+    }
+  }
+}
 
 TsdfIntegratorBase::Ptr TsdfIntegratorFactory::create(
     const std::string& integrator_type_name,
@@ -275,6 +336,16 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
       tsdf_voxel->alpha <= kFloatEpsilon && tsdf_voxel->beta <= kFloatEpsilon) {
     VLOG(1) << "Initializing voxel at idx=" << global_voxel_idx.transpose();
     initializeVoxel(dist_observed, color, float(observed_confidence), tsdf_voxel);
+    
+    // Log initialization
+    logVoxelUpdate(global_voxel_idx,
+                   float(tsdf_voxel->confidence),
+                   tsdf_voxel->distance,
+                   float(tsdf_voxel->variance),
+                   tsdf_voxel->weight,
+                   float(tsdf_voxel->alpha),
+                   float(tsdf_voxel->beta),
+                   float(observed_confidence));
     return;
   }
 
@@ -294,6 +365,17 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
   const float clamped_dist =
       (dist_new > half_float::half(0.0f)) ? std::min(config_.default_truncation_distance, float(dist_new))
                         : std::max(-config_.default_truncation_distance, float(dist_new));
+                        
+  // Update weight
+  const float new_weight = tsdf_voxel->weight + updated_weight;
+
+  //Previous Distance Update
+
+  const float new_sdf =
+      (sdf * updated_weight + tsdf_voxel->distance * tsdf_voxel->weight) /
+      new_weight;
+
+  // const float new_sdf = (observed_confidence * sdf + tsdf_voxel->confidence * tsdf_voxel->distance) / (observed_confidence + tsdf_voxel->confidence);
 
   // Color blending only near the surface (unchanged)
   if (std::abs(sdf) < config_.default_truncation_distance) {
@@ -303,11 +385,24 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
 
   // Assign updates
   tsdf_voxel->confidence = current_confidence;
-  tsdf_voxel->distance = clamped_dist;
-  tsdf_voxel->variance = var_new; //half_float::half(var_observed);
+  // tsdf_voxel->distance = clamped_dist;
+  tsdf_voxel->distance = float(dist_new); //new_sdf
+      // (new_sdf > 0.0) ? std::min(config_.default_truncation_distance, new_sdf)
+      //                 : std::max(-config_.default_truncation_distance, new_sdf);
+  tsdf_voxel->variance = var_new;//half_float::half(var_observed); //var_new; //half_float::half(var_observed);
   // Keep original weight field for compatibility, optionally tie to confidence
   // Do not exceed max_weight
-  tsdf_voxel->weight = weight;
+  tsdf_voxel->weight = std::min(config_.max_weight, new_weight);
+  
+  Log voxel update for diagnostics
+  logVoxelUpdate(global_voxel_idx,
+                 float(tsdf_voxel->confidence),  // confidence
+                 tsdf_voxel->distance,           // distance
+                 float(tsdf_voxel->variance),    // variance
+                 tsdf_voxel->weight,             // weight
+                 float(tsdf_voxel->alpha),      // alpha
+                 float(tsdf_voxel->beta),        // beta
+                 float(observed_confidence));    // observed_confidence
 }
 
 void TsdfIntegratorBase::initializeVoxel(const float sdf_observed, const Color& color,

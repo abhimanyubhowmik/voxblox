@@ -31,6 +31,12 @@
 
 namespace voxblox {
 
+// Forward declarations for voxel logging
+void initializeVoxelLogging(const std::string& log_file_path);
+void logVoxelUpdate(const GlobalIndex& global_voxel_idx,
+                    float confidence, float distance, float variance, float weight,
+                    float alpha, float beta, float observed_confidence);
+
 enum class TsdfIntegratorType : int {
   kSimple = 1,
   kMerged = 2,
