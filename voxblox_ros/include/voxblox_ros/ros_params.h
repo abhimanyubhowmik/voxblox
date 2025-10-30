@@ -109,6 +109,8 @@ inline TsdfIntegratorBase::Config getTsdfIntegratorConfigFromRosParam(
   nh_private.param("integration_order_mode",
                    integrator_config.integration_order_mode,
                    integrator_config.integration_order_mode);
+  nh_private.param("imm_confidence_influence", integrator_config.imm_confidence_influence,
+                   integrator_config.imm_confidence_influence);
 
   // Extended probabilistic integration parameters
   nh_private.param("lambda_forgetting", integrator_config.lambda_forgetting,
