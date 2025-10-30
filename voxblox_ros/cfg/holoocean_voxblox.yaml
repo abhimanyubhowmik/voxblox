@@ -25,6 +25,7 @@ mesh_min_weight: 0.001
 use_masked_tsdf_updates: False
 max_consecutive_ray_collisions: 1
 clear_checks_every_n_frames: 1
+voxel_log_file_path: "/tmp/voxel_log.csv"
 
 # Extended probabilistic TSDF integration parameters
 lambda_forgetting: 0.95
@@ -34,3 +35,4 @@ observed_variance: 0.01
 imm_use_confidence_mixing: True
 imm_a1_fixed: 0.5
 imm_a2_fixed: 0.5
+imm_confidence_influence: 0.3

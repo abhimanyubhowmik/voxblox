@@ -1,11 +1,72 @@
 #include "voxblox/integrator/tsdf_integrator.h"
 
 #include <iostream>
+#include <fstream>
+#include <iomanip>
 #include <list>
 #include <atomic>
+#include <chrono>
+#include <ctime>
 #include <voxblox/half.hpp>
+#include <mutex>
 
 namespace voxblox {
+
+// Static logging setup for voxel updates
+static std::mutex voxel_log_mutex;
+static std::ofstream voxel_log_file;
+static std::atomic<bool> voxel_log_enabled{false};
+
+// Initialize logging (can be called from TsdfIntegratorBase constructor)
+void initializeVoxelLogging(const std::string& log_file_path) {
+  std::lock_guard<std::mutex> lock(voxel_log_mutex);
+  if (!voxel_log_file.is_open()) {
+    voxel_log_file.open(log_file_path, std::ios::out | std::ios::app);
+    if (voxel_log_file.is_open()) {
+      voxel_log_enabled = true;
+      // Write header
+      voxel_log_file << "# Timestamp, VoxelIndex(x,y,z), Confidence, Distance, Variance, Weight, Alpha, Beta, ObservedConfidence\n";
+      voxel_log_file << std::fixed << std::setprecision(6);
+      voxel_log_file.flush();
+    }
+  }
+}
+
+// Log voxel update data
+void logVoxelUpdate(const GlobalIndex& global_voxel_idx,
+                   float confidence, float distance, float variance, float weight,
+                   float alpha, float beta, float observed_confidence) {
+  if (!voxel_log_enabled.load()) {
+    return;
+  }
+  
+  std::lock_guard<std::mutex> lock(voxel_log_mutex);
+  
+  if (voxel_log_file.is_open() && voxel_log_file.good()) {
+    // Get timestamp
+    auto now = std::chrono::system_clock::now();
+    auto time_since_epoch = now.time_since_epoch();
+    auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(time_since_epoch).count();
+    
+    voxel_log_file << millis << ","
+                   << global_voxel_idx.x() << ","
+                   << global_voxel_idx.y() << ","
+                   << global_voxel_idx.z() << ","
+                   << confidence << ","
+                   << distance << ","
+                   << variance << ","
+                   << weight << ","
+                   << alpha << ","
+                   << beta << ","
+                   << observed_confidence << "\n";
+    
+    // Flush every 100 updates to reduce I/O overhead
+    static int flush_counter = 0;
+    if (++flush_counter % 100 == 0) {
+      voxel_log_file.flush();
+    }
+  }
+}
 
 TsdfIntegratorBase::Ptr TsdfIntegratorFactory::create(
     const std::string& integrator_type_name,
@@ -251,13 +312,13 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
           : half_float::half(0.5f);
 
   // IMM weights a1 (previous model) and a2 (observed model)
-  half_float::half a1 = config_.imm_use_confidence_mixing ? half_float::half(prev_confidence) : half_float::half(config_.imm_a1_fixed);
-  half_float::half a2 = config_.imm_use_confidence_mixing ? observed_confidence : half_float::half(config_.imm_a2_fixed);
-  // normalize to ensure sum to 1 and avoid degenerate cases
-  const half_float::half a_sum = ((a1 + a2) > half_float::half(kFloatEpsilon)) ? (a1 + a2) : half_float::half(kFloatEpsilon);
-  a1 = a1 / a_sum;
-  a2 /= a_sum;
-  VLOG(1) << "IMM a1=" << a1 << " a2=" << a2;
+  // half_float::half a1 = config_.imm_use_confidence_mixing ? half_float::half(prev_confidence) : half_float::half(config_.imm_a1_fixed);
+  // half_float::half a2 = config_.imm_use_confidence_mixing ? observed_confidence : half_float::half(config_.imm_a2_fixed);
+  // // normalize to ensure sum to 1 and avoid degenerate cases
+  // const half_float::half a_sum = ((a1 + a2) > half_float::half(kFloatEpsilon)) ? (a1 + a2) : half_float::half(kFloatEpsilon);
+  // a1 = a1 / a_sum;
+  // a2 /= a_sum;
+  // VLOG(1) << "IMM a1=" << a1 << " a2=" << a2;
 
   // Observed distance and variance
   const float dist_observed = sdf;
@@ -275,16 +336,96 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
       tsdf_voxel->alpha <= kFloatEpsilon && tsdf_voxel->beta <= kFloatEpsilon) {
     VLOG(1) << "Initializing voxel at idx=" << global_voxel_idx.transpose();
     initializeVoxel(dist_observed, color, float(observed_confidence), tsdf_voxel);
-    return;
+    
+    // // Log initialization
+    // logVoxelUpdate(global_voxel_idx,
+    //                float(tsdf_voxel->confidence),
+    //                tsdf_voxel->distance,
+    //                float(tsdf_voxel->variance),
+    //                tsdf_voxel->weight,
+    //                float(tsdf_voxel->alpha),
+    //                float(tsdf_voxel->beta),
+    //                float(observed_confidence));
+    // return;
   }
 
+    // Calculate how much evidence we have accumulated
+  // const float total_evidence = tsdf_voxel->weight + updated_weight;
+  // const float evidence_ratio = (total_evidence > kFloatEpsilon) 
+  //                             ? (tsdf_voxel->weight / total_evidence) 
+  //                             : 0.5f;
+
+  // // Your confidence-based mixing
+  // half_float::half a1_conf = config_.imm_use_confidence_mixing 
+  //                           ? half_float::half(prev_confidence) 
+  //                           : half_float::half(config_.imm_a1_fixed);
+  // half_float::half a2_conf = config_.imm_use_confidence_mixing 
+  //                           ? observed_confidence 
+  //                           : half_float::half(config_.imm_a2_fixed);
+
+  // // Blend confidence mixing with evidence-based mixing
+  // // More accumulated weight → more influence from evidence ratio
+  // const float confidence_weight = config_.imm_confidence_influence;  // e.g., 0.3
+  // const float evidence_weight = 1.0f - confidence_weight;
+
+  // float a1 = evidence_weight * evidence_ratio + confidence_weight * float(a1_conf);
+  // float a2 = evidence_weight * (1.0f - evidence_ratio) + confidence_weight * float(a2_conf);
+
+  // // Normalize
+  // const float a_sum = (a1 + a2 > kFloatEpsilon) ? (a1 + a2) : 1.0f;
+  // a1 /= a_sum;
+  // a2 /= a_sum;
+
+
+  // Now compute distance with stabilized mixing
+  // const float dist_new = a1 * prev_dist + a2 * dist_observed;
+
+
+  // Confidence-based tendency (your IMM component)
+  const float confidence_prior = prev_confidence;
+  const float confidence_obs = float(observed_confidence);
+
+  // Evidence scaling: how much should we trust accumulated vs new?
+  const float total_evidence = tsdf_voxel->weight + updated_weight;
+  const float prior_evidence = tsdf_voxel->weight;
+  const float new_evidence = updated_weight;
+
+  // Scale confidence by actual evidence weights
+  // Key insight: don't normalize! Let evidence magnitude matter
+  const float a1 = confidence_prior * prior_evidence;
+  const float a2 = confidence_obs * new_evidence;
+
+  // Now normalize by total evidence (not just a1+a2)
+  const float evidence_sum = a1 + a2;
+  const float a1_normalized = (evidence_sum > kFloatEpsilon) ? (a1 / evidence_sum) : 0.5f;
+  const float a2_normalized = (evidence_sum > kFloatEpsilon) ? (a2 / evidence_sum) : 0.5f;
+
+  // Compute distance
+  const float dist_new = a1_normalized * prev_dist + a2_normalized * dist_observed;
+
+
+
+  //   // Standard weighted update
+  // const float new_weight = tsdf_voxel->weight + updated_weight;
+  // const float weight_ratio = (new_weight > kFloatEpsilon) 
+  //                           ? (updated_weight / new_weight) 
+  //                           : 0.5f;
+
+  // // Modulate learning rate by confidence
+  // const float confidence_modulated_lr = weight_ratio * float(observed_confidence);
+
+  // // Update with modulated learning rate
+  // const float dist_new = prev_dist * (1.0f - confidence_modulated_lr) 
+  //                       + dist_observed * confidence_modulated_lr;
+
+
   // IMM-style fused mean
-  const half_float::half dist_new = a1 * half_float::half(prev_dist) + a2 * half_float::half(dist_observed);
+  // const half_float::half dist_new = a1 * half_float::half(prev_dist) + a2 * half_float::half(dist_observed);
 
   // IMM-style fused variance: E[x^2] - (E[x])^2 with mixture of second moments
   const half_float::half second_moment_prev = prev_var + half_float::half(prev_dist * prev_dist);
   const half_float::half second_moment_obs = half_float::half(var_observed) + half_float::half(dist_observed * dist_observed);
-  half_float::half var_new = a1 * second_moment_prev + a2 * second_moment_obs - dist_new * dist_new;
+  half_float::half var_new = half_float::half(a1_normalized) * second_moment_prev + half_float::half(a2_normalized) * second_moment_obs - half_float::half(dist_new * dist_new);
   if (var_new < half_float::half(0.0f)) {
     var_new = half_float::half(0.0f);
   }
@@ -294,6 +435,17 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
   const float clamped_dist =
       (dist_new > half_float::half(0.0f)) ? std::min(config_.default_truncation_distance, float(dist_new))
                         : std::max(-config_.default_truncation_distance, float(dist_new));
+                        
+  // Update weight
+  const float new_weight = tsdf_voxel->weight + updated_weight;
+
+  // //Previous Distance Update
+
+  // const float new_sdf =
+  //     (sdf * updated_weight + tsdf_voxel->distance * tsdf_voxel->weight) /
+  //     new_weight;
+
+  // const float new_sdf = (observed_confidence * sdf + tsdf_voxel->confidence * tsdf_voxel->distance) / (observed_confidence + tsdf_voxel->confidence);
 
   // Color blending only near the surface (unchanged)
   if (std::abs(sdf) < config_.default_truncation_distance) {
@@ -304,10 +456,45 @@ void TsdfIntegratorBase::updateTsdfVoxel(const Point& origin,
   // Assign updates
   tsdf_voxel->confidence = current_confidence;
   tsdf_voxel->distance = clamped_dist;
-  tsdf_voxel->variance = var_new; //half_float::half(var_observed);
+  const float prev_distance = tsdf_voxel->distance; // Save old distance (before update)
+  // tsdf_voxel->distance = (new_sdf > 0.0) ? std::min(config_.default_truncation_distance, new_sdf)
+  //                     : std::max(-config_.default_truncation_distance, new_sdf);
+  tsdf_voxel->variance = var_new;//half_float::half(var_observed); //var_new; //half_float::half(var_observed);
   // Keep original weight field for compatibility, optionally tie to confidence
   // Do not exceed max_weight
-  tsdf_voxel->weight = weight;
+  tsdf_voxel->weight = std::min(config_.max_weight, new_weight);
+
+  // logVoxelUpdate(global_voxel_idx,
+  //   float(tsdf_voxel->confidence),
+  //   tsdf_voxel->distance,
+  //   float(tsdf_voxel->variance),
+  //   tsdf_voxel->weight,
+  //   float(tsdf_voxel->alpha),
+  //   float(tsdf_voxel->beta),
+  //   float(observed_confidence));
+  
+  // --- Monitor sign change of occupancy ---
+  // {
+  //   std::lock_guard<std::mutex> lock(prev_voxel_occupied_mutex_);
+  //   bool old_occupied = (prev_distance <= 0.0f);
+  //   bool new_occupied = (tsdf_voxel->distance <= 0.0f);
+  //   bool was_found = prev_voxel_occupied_.count(global_voxel_idx) > 0;
+  //   bool previous_map_occupied = (was_found) ? prev_voxel_occupied_[global_voxel_idx] : old_occupied;
+
+  //   if (previous_map_occupied != new_occupied) {
+  //     // Only log on a crossing (sign change w.r.t. 0.0)
+  //     logVoxelUpdate(global_voxel_idx,
+  //                    float(tsdf_voxel->confidence),
+  //                    tsdf_voxel->distance,
+  //                    float(tsdf_voxel->variance),
+  //                    tsdf_voxel->weight,
+  //                    float(tsdf_voxel->alpha),
+  //                    float(tsdf_voxel->beta),
+  //                    float(observed_confidence));
+  //   }
+  //   // Update state for next time
+  //   prev_voxel_occupied_[global_voxel_idx] = new_occupied;
+  // }
 }
 
 void TsdfIntegratorBase::initializeVoxel(const float sdf_observed, const Color& color,

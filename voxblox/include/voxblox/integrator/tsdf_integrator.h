@@ -31,6 +31,12 @@
 
 namespace voxblox {
 
+// Forward declarations for voxel logging
+void initializeVoxelLogging(const std::string& log_file_path);
+void logVoxelUpdate(const GlobalIndex& global_voxel_idx,
+                    float confidence, float distance, float variance, float weight,
+                    float alpha, float beta, float observed_confidence);
+
 enum class TsdfIntegratorType : int {
   kSimple = 1,
   kMerged = 2,
@@ -114,6 +120,7 @@ class TsdfIntegratorBase {
     bool imm_use_confidence_mixing = true;
     float imm_a1_fixed = 0.5f;
     float imm_a2_fixed = 0.5f;
+    float imm_confidence_influence = 0.3f;  // [0,1] How much to blend confidence vs evidence in IMM fusion
 
     std::string print() const;
   };
@@ -237,6 +244,10 @@ class TsdfIntegratorBase {
    * (num_threads / (2^n)). For 8 threads and 12 bits this gives 0.2%.
    */
   ApproxHashArray<12, std::mutex, GlobalIndex, LongIndexHash> mutexes_;
+
+  // Track previous sign (occupied/unoccupied) for each voxel for logging purposes
+  LongIndexHashMapType<bool>::type prev_voxel_occupied_;
+  std::mutex prev_voxel_occupied_mutex_;
 };
 
 /// Creates a TSDF integrator of the desired type.

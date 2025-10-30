@@ -270,6 +270,14 @@ void TsdfServer::getServerConfigFromRosParam(
     ROS_ERROR_STREAM("Invalid color map: " << intensity_colormap);
   }
   color_map_->setMaxValue(intensity_max_value);
+
+  // // // Voxel logging setup
+  // std::string voxel_log_file_path;
+  // nh_private.param("voxel_log_file_path", voxel_log_file_path, std::string(""));
+  // if (!voxel_log_file_path.empty()) {
+  //   initializeVoxelLogging(voxel_log_file_path);
+  //   ROS_INFO("Voxel logging enabled: %s", voxel_log_file_path.c_str());
+  // }
 }
 
 void TsdfServer::processPointCloudMessageAndInsert(

@@ -383,6 +383,9 @@ inline bool visualizeOccupiedTsdfVoxels(const TsdfVoxel& voxel,
   if (voxel.weight > kMinWeight && voxel.distance <= min_distance) {
     return true;
   }
+  // LOG(WARNING) << "Excluded voxel: dist=" << voxel.distance 
+  //                << " weight=" << voxel.weight
+  //                << " (dist > min_distance=" << min_distance << ")";
   return false;
 }
 
