@@ -1,0 +1,38 @@
+world_frame: base_link_filtered
+use_tf_transforms: True
+use_freespace_pointcloud: True
+tsdf_voxel_size: 0.20
+tsdf_voxels_per_side: 16
+max_ray_length_m: 4.0
+truncation_distance: 0.5 #1.2
+color_mode: "color"
+publish_tsdf_info: True
+use_tf_transforms: True
+verbose: True
+publish_pointclouds: True
+publish_tsdf_map: True
+publish_slices: False
+update_mesh_every_n_sec: 0.5
+min_time_between_msgs_sec: 0.0
+slice_level: 1.0
+max_ray_length_m: 15.0
+min_ray_length_m: 0.1
+max_weight: 10000.0
+use_const_weight: False
+use_const_model_variance: False
+allow_clear: True
+mesh_min_weight: 0.001
+use_masked_tsdf_updates: False
+max_consecutive_ray_collisions: 1
+clear_checks_every_n_frames: 1
+voxel_log_file_path: "/tmp/voxel_log.csv"
+
+# Extended probabilistic TSDF integration parameters
+lambda_forgetting: 0.95
+init_alpha: 1.0
+init_beta: 1.0
+observed_variance: 0.01
+imm_use_confidence_mixing: True
+imm_a1_fixed: 0.5
+imm_a2_fixed: 0.5
+imm_confidence_influence: 0.3
