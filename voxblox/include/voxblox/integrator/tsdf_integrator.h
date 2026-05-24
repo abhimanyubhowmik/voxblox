@@ -72,6 +72,21 @@ class TsdfIntegratorBase {
     cy_ = cy;
   }
 
+  /// Set pose covariance matrix (6x6: translation + rotation) and camera-to-base transform
+  void setPoseCovariance(const Eigen::Matrix<double, 6, 6>& covariance,
+                         const Eigen::Vector3d& camera_to_base) {
+    std::lock_guard<std::mutex> lock(pose_covariance_mutex_);
+    pose_covariance_ = covariance;
+    camera_to_base_translation_ = camera_to_base;
+    pose_covariance_valid_ = true;
+  }
+
+  /// Clear pose covariance (disable pose uncertainty)
+  void clearPoseCovariance() {
+    std::lock_guard<std::mutex> lock(pose_covariance_mutex_);
+    pose_covariance_valid_ = false;
+  }
+
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   typedef std::shared_ptr<TsdfIntegratorBase> Ptr;
 
@@ -121,6 +136,10 @@ class TsdfIntegratorBase {
     float imm_a1_fixed = 0.5f;
     float imm_a2_fixed = 0.5f;
     float imm_confidence_influence = 0.3f;  // [0,1] How much to blend confidence vs evidence in IMM fusion
+
+    // Pose uncertainty parameters
+    bool use_pose_uncertainty = false;
+    Eigen::Vector3d camera_to_base_translation = Eigen::Vector3d::Zero();
 
     std::string print() const;
   };
@@ -209,6 +228,14 @@ class TsdfIntegratorBase {
   half_float::half getVoxelConfidence(const Point& point_C) const;
   half_float::half getVoxelVariance(const Point& point_C) const;
 
+  /// Compute Jacobian of range with respect to pose perturbation (1x6 vector)
+  /// Thread safe.
+  Eigen::Matrix<double, 1, 6> computeRangeJacobian(const Point& point_C) const;
+
+  /// Compute pose-induced variance in depth measurement
+  /// Thread safe.
+  half_float::half computePoseVariance(const Point& point_C) const;
+
   
 
   Config config_;
@@ -248,6 +275,12 @@ class TsdfIntegratorBase {
   // Track previous sign (occupied/unoccupied) for each voxel for logging purposes
   LongIndexHashMapType<bool>::type prev_voxel_occupied_;
   std::mutex prev_voxel_occupied_mutex_;
+
+  // Pose uncertainty storage
+  Eigen::Matrix<double, 6, 6> pose_covariance_;
+  Eigen::Vector3d camera_to_base_translation_;
+  bool pose_covariance_valid_;
+  mutable std::mutex pose_covariance_mutex_;
 };
 
 /// Creates a TSDF integrator of the desired type.

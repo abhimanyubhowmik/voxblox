@@ -115,7 +115,10 @@ TsdfIntegratorBase::Ptr TsdfIntegratorFactory::create(
 
 TsdfIntegratorBase::TsdfIntegratorBase(const Config& config,
                                        Layer<TsdfVoxel>* layer)
-    : config_(config) {
+    : config_(config),
+      pose_covariance_(Eigen::Matrix<double, 6, 6>::Identity()),
+      camera_to_base_translation_(config.camera_to_base_translation.cast<double>()),
+      pose_covariance_valid_(false) {
   setLayer(layer);
 
   if (config_.integrator_threads == 0) {
@@ -559,14 +562,26 @@ float TsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
 }
 
 half_float::half TsdfIntegratorBase::getVoxelVariance(const Point& point_C) const {
+  half_float::half model_variance;
   if (config_.use_const_model_variance) {
-    return half_float::half(1.0f);
+    model_variance = half_float::half(1.0f);
+  } else {
+    const FloatingPoint dist_z = std::abs(point_C.z());
+    if (dist_z > kEpsilon) {
+      model_variance = half_float::half(1.0f * dist_z);
+    } else {
+      model_variance = half_float::half(0.0f);
+    }
   }
-  const FloatingPoint dist_z = std::abs(point_C.z());
-  if (dist_z > kEpsilon) {
-    return half_float::half(1.0f * dist_z);
+
+  // Add pose uncertainty if enabled
+  if (config_.use_pose_uncertainty) {
+    half_float::half pose_var = computePoseVariance(point_C);
+    // Combine variances (assuming independence)
+    return model_variance + pose_var;
   }
-  return half_float::half(0.0f);
+
+  return model_variance;
 }
 
 half_float::half TsdfIntegratorBase::getVoxelConfidence(const Point& point_C) const {
@@ -599,6 +614,60 @@ half_float::half TsdfIntegratorBase::getVoxelConfidence(const Point& point_C) co
   return half_float::half(0.0f);  // If out of bounds, return a weight of 0
 }
 
+Eigen::Matrix<double, 1, 6> TsdfIntegratorBase::computeRangeJacobian(const Point& point_C) const {
+  // Compute unit ray direction: r̂ = P_c / ||P_c||
+  const double point_norm = point_C.norm();
+  if (point_norm < kEpsilon) {
+    // Return zero Jacobian for invalid points
+    return Eigen::Matrix<double, 1, 6>::Zero();
+  }
+
+  const Eigen::Vector3d unit_ray = point_C.cast<double>() / point_norm;
+
+  // Get camera-to-base translation (with lock)
+  std::lock_guard<std::mutex> lock(pose_covariance_mutex_);
+  const Eigen::Vector3d t_cam = camera_to_base_translation_;
+
+  // Compute skew-symmetric matrix [t_cam]×
+  Eigen::Matrix3d t_cam_skew;
+  t_cam_skew << 0.0, -t_cam.z(), t_cam.y(),
+                t_cam.z(), 0.0, -t_cam.x(),
+                -t_cam.y(), t_cam.x(), 0.0;
+
+  // Jacobian: J_ρ = [-r̂ᵀ, -r̂ᵀ[t_cam]×]
+  Eigen::Matrix<double, 1, 6> jacobian;
+  jacobian.block<1, 3>(0, 0) = -unit_ray.transpose();  // Translation part
+  jacobian.block<1, 3>(0, 3) = -unit_ray.transpose() * t_cam_skew;  // Rotation part
+
+  return jacobian;
+}
+
+half_float::half TsdfIntegratorBase::computePoseVariance(const Point& point_C) const {
+  // Check if pose covariance is valid
+  {
+    std::lock_guard<std::mutex> lock(pose_covariance_mutex_);
+    if (!pose_covariance_valid_) {
+      return half_float::half(0.0f);
+    }
+  }
+
+  // Compute Jacobian (this will acquire the lock internally)
+  const Eigen::Matrix<double, 1, 6> jacobian = computeRangeJacobian(point_C);
+
+  // Get pose covariance (with lock)
+  Eigen::Matrix<double, 6, 6> pose_cov;
+  {
+    std::lock_guard<std::mutex> lock(pose_covariance_mutex_);
+    pose_cov = pose_covariance_;
+  }
+
+  // Compute variance: σ²_z,pose = J_ρ P_pose J_ρᵀ
+  const double variance = (jacobian * pose_cov * jacobian.transpose())(0, 0);
+
+  // Ensure non-negative and convert to half precision
+  const float variance_float = std::max(0.0, variance);
+  return half_float::half(variance_float);
+}
 
 void SimpleTsdfIntegrator::integratePointCloud(const Transformation& T_G_C,
                                                const Pointcloud& points_C,
@@ -994,6 +1063,9 @@ std::string TsdfIntegratorBase::Config::print() const {
   ss << " - imm_use_confidence_mixing:                 " << imm_use_confidence_mixing << "\n";
   ss << " - imm_a1_fixed:                              " << imm_a1_fixed << "\n";
   ss << " - imm_a2_fixed:                              " << imm_a2_fixed << "\n";
+  ss << " Pose Uncertainty: \n";
+  ss << " - use_pose_uncertainty:                      " << use_pose_uncertainty << "\n";
+  ss << " - camera_to_base_translation:                [" << camera_to_base_translation.x() << ", " << camera_to_base_translation.y() << ", " << camera_to_base_translation.z() << "]\n";
   ss << " MergedTsdfIntegrator: \n";
   ss << " - enable_anti_grazing:                       " << enable_anti_grazing << "\n";
   ss << " FastTsdfIntegrator: \n";

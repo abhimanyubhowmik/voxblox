@@ -129,6 +129,16 @@ inline TsdfIntegratorBase::Config getTsdfIntegratorConfigFromRosParam(
   nh_private.param("imm_a2_fixed", integrator_config.imm_a2_fixed,
                    integrator_config.imm_a2_fixed);
 
+  // Pose uncertainty parameters
+  nh_private.param("use_pose_uncertainty", integrator_config.use_pose_uncertainty,
+                   integrator_config.use_pose_uncertainty);
+  std::vector<double> camera_to_base_vec;
+  if (nh_private.getParam("camera_to_base_translation", camera_to_base_vec) &&
+      camera_to_base_vec.size() == 3) {
+    integrator_config.camera_to_base_translation = Eigen::Vector3d(
+        camera_to_base_vec[0], camera_to_base_vec[1], camera_to_base_vec[2]);
+  }
+
   integrator_config.default_truncation_distance =
       static_cast<float>(truncation_distance);
   integrator_config.max_weight = static_cast<float>(max_weight);

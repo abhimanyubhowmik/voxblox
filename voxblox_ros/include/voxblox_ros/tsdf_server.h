@@ -32,6 +32,7 @@
 
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/core.hpp>
+#include <nav_msgs/Odometry.h>
 
 namespace voxblox {
 
@@ -49,6 +50,7 @@ class TsdfServer {
   virtual ~TsdfServer() {}
 
   void confidenceCallback(const sensor_msgs::ImageConstPtr& msg);
+  void odometryCallback(const nav_msgs::OdometryConstPtr& msg);
   void loadCameraIntrinsics(const ros::NodeHandle& nh_private);
   void updateIntegratorConfidence();
 
@@ -132,8 +134,16 @@ class TsdfServer {
  private:
  /// The TSDF map.
   ros::Subscriber confidence_sub_;
+  ros::Subscriber odometry_sub_;
   cv::Mat confidence_image_;
   float fx_, fy_, cx_, cy_;  // Camera intrinsics
+  
+  // Pose uncertainty storage
+  Eigen::Matrix<double, 6, 6> pose_covariance_;
+  Eigen::Vector3d camera_to_base_translation_;
+  bool pose_covariance_valid_;
+  std::mutex pose_covariance_mutex_;
+  std::string base_frame_;  // Base frame for camera-to-base transform
 
  protected:
   /**

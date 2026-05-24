@@ -36,3 +36,10 @@ imm_use_confidence_mixing: True
 imm_a1_fixed: 0.5
 imm_a2_fixed: 0.5
 imm_confidence_influence: 0.3
+
+tsdf_integrator:
+  use_pose_uncertainty: true
+  camera_to_base_translation: [0.1, 0.0, 0.05]  # Camera offset in base frame
+
+tsdf_server:
+  odometry_topic: "/odometry_filtered"

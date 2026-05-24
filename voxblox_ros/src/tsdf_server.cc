@@ -50,6 +50,31 @@ TsdfServer::TsdfServer(const ros::NodeHandle& nh,
   confidence_sub_ = nh_.subscribe("confidence", 10, 
                                            &TsdfServer::confidenceCallback, this);
 
+  // Initialize pose uncertainty
+  pose_covariance_ = Eigen::Matrix<double, 6, 6>::Identity();
+  camera_to_base_translation_ = Eigen::Vector3d::Zero();
+  pose_covariance_valid_ = false;
+  
+  // Load camera-to-base translation from config or TF
+  nh_private_.param("base_frame", base_frame_, std::string("base_link"));
+  std::vector<double> camera_to_base_vec;
+  if (nh_private_.getParam("camera_to_base_translation", camera_to_base_vec) &&
+      camera_to_base_vec.size() == 3) {
+    camera_to_base_translation_ = Eigen::Vector3d(
+        camera_to_base_vec[0], camera_to_base_vec[1], camera_to_base_vec[2]);
+    ROS_INFO("Camera-to-base translation: [%f, %f, %f]",
+             camera_to_base_translation_.x(),
+             camera_to_base_translation_.y(),
+             camera_to_base_translation_.z());
+  }
+
+  // Subscribe to odometry for pose covariance
+  std::string odometry_topic = "/odometry_filtered";
+  nh_private_.param("odometry_topic", odometry_topic, odometry_topic);
+  odometry_sub_ = nh_.subscribe(odometry_topic, 10,
+                                 &TsdfServer::odometryCallback, this);
+  ROS_INFO("Subscribed to odometry topic: %s", odometry_topic.c_str());
+
   // Advertise topics.
   surface_pointcloud_pub_ =
       nh_private_.advertise<pcl::PointCloud<pcl::PointXYZRGB> >(
@@ -202,6 +227,28 @@ void TsdfServer::confidenceCallback(const sensor_msgs::ImageConstPtr& msg) {
   } catch (cv_bridge::Exception& e) {
     ROS_ERROR("cv_bridge exception: %s", e.what());
   }
+}
+
+void TsdfServer::odometryCallback(const nav_msgs::OdometryConstPtr& msg) {
+  std::lock_guard<std::mutex> lock(pose_covariance_mutex_);
+  
+  // Extract 6x6 pose covariance matrix from odometry message
+  // The covariance is stored as a 36-element array in row-major order
+  // First 3x3 block: position covariance
+  // Next 3x3 blocks: position-orientation cross-covariances
+  // Last 3x3 block: orientation covariance
+  for (int i = 0; i < 6; ++i) {
+    for (int j = 0; j < 6; ++j) {
+      pose_covariance_(i, j) = msg->pose.covariance[i * 6 + j];
+    }
+  }
+  
+  pose_covariance_valid_ = true;
+  
+  // Update integrator with latest pose covariance
+  tsdf_integrator_->setPoseCovariance(pose_covariance_, camera_to_base_translation_);
+  
+  VLOG(1) << "Updated pose covariance from odometry";
 }
 
 void TsdfServer::updateIntegratorConfidence() {
