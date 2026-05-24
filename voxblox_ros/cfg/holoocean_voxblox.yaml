@@ -39,7 +39,7 @@ imm_confidence_influence: 0.3
 
 tsdf_integrator:
   use_pose_uncertainty: true
-  camera_to_base_translation: [0.1, 0.0, 0.05]  # Camera offset in base frame
+  camera_to_base_translation: [0.5, 0.0, 0.0]  # Camera offset in base frame
 
 tsdf_server:
   odometry_topic: "/odometry_filtered"

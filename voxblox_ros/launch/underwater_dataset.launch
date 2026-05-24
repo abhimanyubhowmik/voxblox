@@ -13,7 +13,16 @@
     <rosparam command="load" file="$(arg voxblox_config_file)" />
     <rosparam command="load" file="$(find voxblox_ros)/cfg/calibrations/camera_intrinsics.yaml" />
 
-
     <param name="mesh_filename" value="$(find voxblox_ros)/mesh_results/$(anon rgbd).ply" />
   </node>
+
+  <!-- Publish accumulated trajectory path from ROVIO odometry -->
+  <node name="odometry_to_path" pkg="voxblox_ros" type="odometry_to_path.py"
+        output="screen">
+    <param name="odometry_topic"  value="/rovio/odometry"/>
+    <param name="path_topic"      value="/rovio/path"/>
+    <param name="min_distance_m"  value="0.02"/>
+    <param name="max_poses"       value="10000000"/>
+  </node>
+
 </launch>

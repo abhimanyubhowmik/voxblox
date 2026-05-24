@@ -51,3 +51,17 @@ weight_ray_by_range: False
 min_ray_length_m: 0.5 #1.0
 occupancy_min_distance_voxel_size_factor: 1.0
 occupancy_distance_voxelsize_factor: 1.0
+
+# Extended probabilistic TSDF integration parameters
+lambda_forgetting: 0.95
+init_alpha: 1.0
+init_beta: 1.0
+observed_variance: 0.01
+imm_use_confidence_mixing: True
+imm_a1_fixed: 0.5
+imm_a2_fixed: 0.5
+imm_confidence_influence: 0.3
+
+use_pose_uncertainty: true
+camera_to_base_translation: [0.0483948, 0.0479978, -0.00977066] # Camera offset in base frame (cam0 AlphaSense in IMU frame)
+odometry_topic: "/rovio/odometry"
